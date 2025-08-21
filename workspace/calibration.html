@@ -1,0 +1,146 @@
+<style type="text/css">
+  .quantity {
+        width:70px;
+        height:30px;
+        Text-align:center;
+  }
+  button {
+        color: black;
+        background: lightblue;
+        border: 2px solid #000;
+        border-radius: 3px;
+        position: center;
+  }
+</style>
+
+<div style="text-align: center; display: block" class="p-quantity">
+  <span align="center" style="text-align: center; display: inline-block;padding: 5px;border: 1px solid #fc0; font-size: 120%;font-weight: bold;">
+    <button id="CALIBRATESTART" type="button" onclick="buttonclick(this);" style="width:200px; height: 30px; Text-align: center;">Calibration: Start</button>
+    <a style="width:200px; height:50px;" href="/">
+      <button id="CALIBRATESAVE" type="button" onclick="buttonclick(this);" style="width:200px; height: 30px; Text-align: center;">Calibration: Save</button>
+    </a>
+  </span><br>
+
+  <!--Left Frontal-->
+  <span><span align="center" style="display:inline-block;margin:10px;padding:5px;border:1px solid #fc0; font-size: 120%;font-weight: bold;">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(5, 0, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(5, 1, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(5, 2, event.target.value)"/> <input type="button" class="increase" value="+">
+  </span></span>
+  <!--Right Frontal-->
+  <span><span align="center" style="display:inline-block;padding:5px;border:1px solid #fc0; font-size: 120%;font-weight: bold;">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(0, 0, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(0, 1, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(0, 2, event.target.value)"/> <input type="button" class="increase" value="+">
+  </span></span><br>
+
+  <!--Left Middle-->
+  <span><span align="center" style="display:inline-block;margin:10px;padding:5px;border:1px solid #fc0; font-size: 120%;font-weight: bold;">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(4, 0, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(4, 1, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(4, 2, event.target.value)"/> <input type="button" class="increase" value="+">
+  </span></span>
+  <!--Right Middle-->
+  <span><span align="center" style="display:inline-block;padding:5px;border:1px solid #fc0; font-size: 120%;font-weight: bold;">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(1, 0, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(1, 1, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(1, 2, event.target.value)"/> <input type="button" class="increase" value="+">
+  </span></span><br>
+
+  <!--Left Back-->
+  <span><span align="center" style="display:inline-block;margin:10px;padding:5px;border:1px solid #fc0; font-size: 120%;font-weight: bold;">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(3, 0, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(3, 1, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(3, 2, event.target.value)"/> <input type="button" class="increase" value="+">
+  </span></span>
+  <!--Right Back-->
+  <span><span align="center" style="display:inline-block;padding:5px;border:1px solid #fc0; font-size: 120%;font-weight: bold;">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(2, 0, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(2, 1, event.target.value)"/> <input type="button" class="increase" value="+">
+  <input type="button" class="decrease" value="-"> <input type="text" class="quantity" value="0" onchange="sendData(2, 2, event.target.value)"/> <input type="button" class="increase" value="+">
+  </span></span><br>
+</div>
+
+<script>
+let increment = document.getElementsByClassName("increase");
+for (let i = 0; i < increment.length; i++) {
+  increment[i].index = i;
+  increment[i].onclick = function () {
+      let flag = this.index;
+      let q = document.getElementsByClassName("quantity")[flag];
+      let newValue = parseInt(q.value) + 1;
+      q.setAttribute('value', newValue);
+
+      sendDataByIndex(i, newValue);
+  }
+}
+
+let decrement=document.getElementsByClassName('decrease');
+for(let j=0;j<decrement.length;j++) {
+  decrement[j].index=j;
+  decrement[j].onclick=function() {
+      let flag=this.index;
+      let q=document.getElementsByClassName("quantity")[flag];
+      let newValue=parseInt(q.value) - 1;
+      q.setAttribute('value',newValue);
+
+      sendDataByIndex(j, newValue);
+  }
+}
+
+function sendDataByIndex(id, newValue) {
+  let legIndex;
+  let partIndex = id % 3;
+
+  let legOrder = Math.floor((id) / 3);
+  switch (legOrder) {
+    case 0:
+      legIndex = 5;
+      break;
+    case 1:
+      legIndex = 0;
+      break;
+    case 2:
+      legIndex = 4;
+      break;
+    case 3:
+      legIndex = 1;
+      break;
+    case 4:
+      legIndex = 3;
+      break;
+    case 5:
+      legIndex = 2;
+      break;
+  }
+
+  sendData(legIndex, partIndex, newValue);
+}
+
+function sendData(legIndex, partIndex, offset) {
+  var intOffset = parseInt(offset, 10);
+
+  var xmlhttp = new XMLHttpRequest();
+  xmlhttp.open("POST", '/calibration', true);
+  xmlhttp.setRequestHeader("Content-Type", "application/json");
+  var data={
+    legIndex: legIndex,
+    partIndex: partIndex,
+    offset: intOffset,
+    modeChanged: false
+  };
+  xmlhttp.send(JSON.stringify(data));
+}
+
+function buttonclick(e) {
+  var xmlhttp = new XMLHttpRequest();
+  xmlhttp.open("POST", '/calibration', true);
+  xmlhttp.setRequestHeader("Content-Type", "application/json");
+
+  var data={
+    modeChanged: true,
+    operation: e.id
+  };
+  xmlhttp.send(JSON.stringify(data));
+}
+</script>
