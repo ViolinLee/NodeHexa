@@ -30,7 +30,7 @@ NodeHexa是一个开源的六足机器人项目，基于ESP32微控制器开发�
 - **姿态控制**: X/Y/Z轴旋转、扭转动作
 - **特殊动作**: 攀爬、快速前进
 
-### 🔧 智能校准系统
+### 🔧 精确校准系统
 - **实时校准** - 通过Web界面进行舵机角度校准
 - **参数保存** - 校准数据自动保存到Flash存储
 - **可视化调试** - 直观的校准界面
@@ -64,25 +64,6 @@ firmware/
 
 ## 🎯 运动控制算法
 
-### 运动模式枚举
-```cpp
-enum MovementMode {
-    MOVEMENT_STANDBY = 0,    // 待机
-    MOVEMENT_FORWARD,        // 前进
-    MOVEMENT_BACKWARD,       // 后退
-    MOVEMENT_TURNLEFT,       // 左转
-    MOVEMENT_TURNRIGHT,      // 右转
-    MOVEMENT_SHIFTLEFT,      // 左移
-    MOVEMENT_SHIFTRIGHT,     // 右移
-    MOVEMENT_CLIMB,          // 攀爬
-    MOVEMENT_ROTATEX,        // X轴旋转
-    MOVEMENT_ROTATEY,        // Y轴旋转
-    MOVEMENT_ROTATEZ,        // Z轴旋转
-    MOVEMENT_TWIST,          // 扭转
-    MOVEMENT_TOTAL
-};
-```
-
 ### 运动学计算
 - **正运动学**: 根据关节角度计算足端位置
 - **逆运动学**: 根据目标位置计算关节角度
@@ -92,21 +73,20 @@ enum MovementMode {
 
 <div align="center">
 
-### 机器人外观
-![正面视图](resource/frontal.jpg)
-*NodeHexa六足机器人正面视图*
+### 结构与硬件设计
+![结构设计](resource/45deg.jpg)
+*机器人结构*
 
-![45度视角](resource/45deg.jpg)
-*45度视角展示机器人结构*
-
-### 硬件设计
 ![PCB电路板](resource/pcb-board.jpg)
-*自定义设计的PCB控制板*
+*PCB控制板*
 
 ![小智拓展板](resource/xiaozhi.jpg)
 *小智AI拓展板集成*
 
 </div>
+
+### 🛒 购买链接
+- **淘宝购买**: [NodeHexa 六足机器人套件](https://item.taobao.com/item.htm?ft=t&id=810056770425)
 
 ## 🚀 快速开始
 
@@ -115,19 +95,6 @@ enum MovementMode {
 - ESP32开发板
 - 18个舵机 (每腿3个)
 - PCA9685 PWM驱动板
-
-### 编译和烧录
-```bash
-# 克隆项目
-git clone https://github.com/your-username/NodeHexa.git
-cd NodeHexa
-
-# 使用PlatformIO编译
-pio run
-
-# 烧录到ESP32
-pio run --target upload
-```
 
 ### 连接和配置
 1. 连接WiFi热点 "NodeHexa" (密码: roboticscv666)
@@ -147,37 +114,10 @@ pio run --target upload
 - **可视化反馈**: 实时显示调整效果
 - **参数保存**: 自动保存校准数据
 
-## 🔧 开发说明
-
-### 项目结构
-```
-NodeHexa/
-├── firmware/           # 固件代码
-│   ├── src/           # 源代码
-│   ├── include/       # 头文件
-│   ├── lib/           # 第三方库
-│   └── platformio.ini # 项目配置
-├── mechanism/         # 3D打印文件
-├── workspace/         # Web界面文件
-├── resource/          # 项目资源图片
-└── docs/             # 文档
-```
-
-### 关键类说明
-- **HexapodClass**: 六足机器人主控制类
-- **Leg**: 单腿控制，包含运动学计算
-- **Movement**: 运动模式管理和步态生成
-- **Servo**: 舵机控制封装
 
 ## 🤝 贡献指南
 
 欢迎提交Issue和Pull Request来改进项目！
-
-1. Fork 本项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
 
 ## 📄 许可证
 
@@ -195,6 +135,6 @@ NodeHexa/
 
 **⭐ 如果这个项目对你有帮助，请给它一个星标！**
 
-Made with ❤️ by NodeHexa Team
+Made with ❤️ by ViolinLee
 
 </div>
