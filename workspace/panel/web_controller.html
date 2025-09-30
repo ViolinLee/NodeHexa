@@ -74,6 +74,119 @@
     .grid-item-3 { grid-column: span 3; }
     .empty { visibility: hidden; }
     .empty-row { grid-column: span 3; height: 20px; }
+
+    /* 速度控制区域样式 */
+    .speed-control {
+      max-width: 600px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+      border-radius: 15px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .speed-label {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .speed-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #1E90FF;
+      text-align: center;
+      margin: 10px 0;
+    }
+    .slider {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 15px;
+      border-radius: 10px;
+      background: #d3d3d3;
+      outline: none;
+      opacity: 0.7;
+      transition: opacity 0.2s;
+    }
+    .slider:hover {
+      opacity: 1;
+    }
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #1E90FF;
+      cursor: pointer;
+    }
+    .slider::-moz-range-thumb {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #1E90FF;
+      cursor: pointer;
+      border: none;
+    }
+    .speed-markers {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 5px;
+      font-size: 12px;
+      color: #666;
+    }
+
+    /* Toggle开关样式 */
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 15px;
+      gap: 10px;
+    }
+    .toggle-label {
+      font-size: 14px;
+      color: #666;
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 24px;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: 0.4s;
+      border-radius: 24px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.4s;
+      border-radius: 50%;
+    }
+    input:checked + .toggle-slider {
+      background-color: #1E90FF;
+    }
+    input:checked + .toggle-slider:before {
+      transform: translateX(26px);
+    }
   </style>
 </head>
 <body>
@@ -81,6 +194,27 @@
 
   <center><span align="center" style="text-align: center; display: inline-block;padding: 5px; font-size: 120%;font-weight: bold;"><a style="width:200px; height:50px;" href="/calibration">
     <button id="CALIBRATEPAGE" type="button" onclick="buttonclick(this);" style="width:200px; height: 30px; Text-align: center;">Calibration: Start | Save</button></a></span></center><br>
+
+  <!-- 速度控制区域 -->
+  <div class="speed-control">
+    <div class="speed-label">运动速度控制</div>
+    <div class="speed-value">速度: <span id="speedValue">0.50</span></div>
+    <input type="range" min="0.3" max="1.0" step="0.05" value="0.5" class="slider" id="speedSlider">
+    <div class="speed-markers">
+      <span>慢速 (0.3)</span>
+      <span>中速 (0.5)</span>
+      <span>快速 (0.75)</span>
+      <span>最快 (1.0)</span>
+    </div>
+    <div class="toggle-container">
+      <span class="toggle-label">松开发送</span>
+      <label class="switch">
+        <input type="checkbox" id="realtimeToggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label">实时发送</span>
+    </div>
+  </div>
   
   <div class="grid-container">
     <button class="button button-posture grid-item-1" onclick="sendCommand(9)">RotateX</button>
@@ -128,13 +262,70 @@
       command |= (1<<commandMode);
       if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
         websocketCarInput.send(JSON.stringify({movementMode: command}));
-        console.log('Sent command: ${command}');
+        console.log('Sent command: ' + command);
       } else {
         console.log('WebSocket is not open. Cannot send command.');
       }
     }
 
-    window.onload = initRobotInputWebSocket;
+    function sendSpeed(speed) {
+      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
+        websocketCarInput.send(JSON.stringify({speed: parseFloat(speed)}));
+        console.log('Sent speed: ' + speed);
+      } else {
+        console.log('WebSocket is not open. Cannot send speed.');
+      }
+    }
+
+    function initSpeedControl() {
+      const speedSlider = document.getElementById('speedSlider');
+      const speedValue = document.getElementById('speedValue');
+      const realtimeToggle = document.getElementById('realtimeToggle');
+      
+      let lastSentSpeed = speedSlider.value;
+      let inputTimeout = null;
+      
+      // 更新显示值
+      speedSlider.addEventListener('input', function() {
+        speedValue.textContent = parseFloat(this.value).toFixed(2);
+        
+        // 如果开启实时发送
+        if (realtimeToggle.checked) {
+          // 使用节流，避免发送过于频繁
+          if (inputTimeout) {
+            clearTimeout(inputTimeout);
+          }
+          inputTimeout = setTimeout(() => {
+            if (this.value !== lastSentSpeed) {
+              sendSpeed(this.value);
+              lastSentSpeed = this.value;
+            }
+          }, 100); // 100ms节流
+        }
+      });
+      
+      // 松开滑块时发送（无论toggle状态如何，都确保发送最终值）
+      speedSlider.addEventListener('change', function() {
+        if (this.value !== lastSentSpeed) {
+          sendSpeed(this.value);
+          lastSentSpeed = this.value;
+        }
+      });
+      
+      // Toggle状态变化时的提示
+      realtimeToggle.addEventListener('change', function() {
+        if (this.checked) {
+          console.log('实时发送模式已开启');
+        } else {
+          console.log('松开发送模式已开启');
+        }
+      });
+    }
+
+    window.onload = function() {
+      initRobotInputWebSocket();
+      initSpeedControl();
+    };
   </script>
 </body>
 </html>
