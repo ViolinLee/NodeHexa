@@ -37,7 +37,7 @@ namespace hexapod {
     };
 
     Movement::Movement(MovementMode mode):
-        mode_{mode}, transiting_{false}
+        mode_{mode}, transiting_{false}, speed_{config::defaultSpeed}
     {
     }
 
@@ -53,19 +53,23 @@ namespace hexapod {
         const MovementTable& table = kTable[mode_];
 
         index_ = table.entries[std::rand() % table.entriesCount];
-        remainTime_ = config::movementSwitchDuration > table.stepDuration ? config::movementSwitchDuration : table.stepDuration;
+        int actualDuration = (int)(table.stepDuration / speed_);
+        remainTime_ = config::movementSwitchDuration > actualDuration ? config::movementSwitchDuration : actualDuration;
     }
 
     const Locations& Movement::next(int elapsed) {
 
         const MovementTable& table = kTable[mode_];
 
+        // Calculate actual step duration based on speed
+        int actualStepDuration = (int)(table.stepDuration / speed_);
+
         if (elapsed <= 0)
-            elapsed = table.stepDuration;
+            elapsed = actualStepDuration;
 
         if (remainTime_ <= 0) {
             index_ = (index_ + 1)%table.length;
-            remainTime_ = table.stepDuration;
+            remainTime_ = actualStepDuration;
         }
         if (elapsed >= remainTime_)
             elapsed = remainTime_;
@@ -75,5 +79,19 @@ namespace hexapod {
         remainTime_ -= elapsed;
 
         return position_;
+    }
+
+    void Movement::setSpeed(float speed) {
+        // Clamp speed to valid range
+        if (speed < config::minSpeed)
+            speed = config::minSpeed;
+        else if (speed > config::maxSpeed)
+            speed = config::maxSpeed;
+        
+        speed_ = speed;
+    }
+
+    float Movement::getSpeed() const {
+        return speed_;
     }
 }

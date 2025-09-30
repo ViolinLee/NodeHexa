@@ -344,6 +344,24 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
             Serial.println("WebSocket: Failed to acquire flag lock, command ignored");
           }
         }
+        
+        // Handle speed control
+        if (json.containsKey("speed")) {
+          float speed = json["speed"];
+          hexapod::Hexapod.setMovementSpeed(speed);
+          Serial.printf("WebSocket: Speed set to %.2f\n", speed);
+        }
+        
+        // Handle speed level control
+        if (json.containsKey("speedLevel")) {
+          int level = json["speedLevel"];
+          if (level >= hexapod::SPEED_SLOW && level <= hexapod::SPEED_FASTEST) {
+            hexapod::Hexapod.setMovementSpeedLevel((hexapod::SpeedLevel)level);
+            Serial.printf("WebSocket: Speed level set to %d\n", level);
+          } else {
+            Serial.printf("WebSocket: Invalid speed level %d\n", level);
+          }
+        }
       }
       break;
     case WS_EVT_PONG:
@@ -497,8 +515,11 @@ void parseSerialMovementCommand(const String& jsonString) {
     return;
   }
   
+  bool hasValidCommand = false;
+  
   // 检查是否包含movementMode字段
   if (json.containsKey("movementMode")) {
+    hasValidCommand = true;
     int16_t movementMode = json["movementMode"];
     
     // 验证运动模式范围
@@ -538,9 +559,50 @@ void parseSerialMovementCommand(const String& jsonString) {
     } else {
       sendSerialResponse("{\"status\":\"error\",\"message\":\"Invalid movement mode\"}");
     }
-  } else {
+  }
+  
+  // Handle speed control
+  if (json.containsKey("speed")) {
+    hasValidCommand = true;
+    float speed = json["speed"];
+    hexapod::Hexapod.setMovementSpeed(speed);
+    Serial.printf("UART2: Speed set to %.2f\n", speed);
+    
+    StaticJsonDocument<128> response;
+    response["status"] = "success";
+    response["speed"] = hexapod::Hexapod.getMovementSpeed();
+    response["message"] = "Speed updated";
+    
+    String responseStr;
+    serializeJson(response, responseStr);
+    sendSerialResponse(responseStr);
+  }
+  
+  // Handle speed level control
+  if (json.containsKey("speedLevel")) {
+    hasValidCommand = true;
+    int level = json["speedLevel"];
+    if (level >= hexapod::SPEED_SLOW && level <= hexapod::SPEED_FASTEST) {
+      hexapod::Hexapod.setMovementSpeedLevel((hexapod::SpeedLevel)level);
+      Serial.printf("UART2: Speed level set to %d\n", level);
+      
+      StaticJsonDocument<128> response;
+      response["status"] = "success";
+      response["speedLevel"] = level;
+      response["speed"] = hexapod::Hexapod.getMovementSpeed();
+      response["message"] = "Speed level updated";
+      
+      String responseStr;
+      serializeJson(response, responseStr);
+      sendSerialResponse(responseStr);
+    } else {
+      sendSerialResponse("{\"status\":\"error\",\"message\":\"Invalid speed level\"}");
+    }
+  }
+  
+  if (!hasValidCommand) {
     // 如果不是有效的指令格式，发送错误响应
-    sendSerialResponse("{\"status\":\"error\",\"message\":\"Missing movementMode field\"}");
+    sendSerialResponse("{\"status\":\"error\",\"message\":\"No valid command field found\"}");
   }
 }
 
