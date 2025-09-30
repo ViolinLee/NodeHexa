@@ -8,7 +8,7 @@
 
 [![Platform](https://img.shields.io/badge/Platform-ESP32-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Framework](https://img.shields.io/badge/Framework-Arduino-green.svg)](https://www.arduino.cc/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL--3.0-red.svg)](LICENSE)
 [![Language](https://img.shields.io/badge/Language-C%2B%2B-orange.svg)](https://isocpp.org/)
 
 </div>
@@ -115,13 +115,32 @@ firmware/
 - **参数保存**: 自动保存校准数据
 
 
+## 🎯 作者
+
+- **B站**: [@智造师_RoboticsCV](https://space.bilibili.com/智造师_RoboticsCV)
+- **GitHub**: [@ViolinLee](https://github.com/ViolinLee)
+- **微信公众号**: RoboticsCV
+
 ## 🤝 贡献指南
 
 欢迎提交Issue和Pull Request来改进项目！
 
-## 📄 许可证
+如果您使用本项目进行二次开发或商业应用，请遵守GPL-3.0协议的要求。
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+## 📄 开源协议
+
+本项目采用 **GNU General Public License v3.0 (GPL-3.0)** 开源协议。
+
+### 主要条款：
+- ✅ **允许**：商业使用、修改、分发、专利使用、私人使用
+- ⚠️ **要求**：
+  - 披露源代码：基于本项目的修改版本必须开源
+  - 协议和版权声明：必须保留原始协议和版权信息
+  - 相同协议分发：衍生作品必须使用相同的GPL-3.0协议
+  - 说明修改：需要说明对原代码的修改内容
+- ❌ **禁止**：不提供任何担保和责任
+
+详细内容请查看 [LICENSE](LICENSE) 文件或访问 [GNU GPL-3.0官网](https://www.gnu.org/licenses/gpl-3.0.html)
 
 ## 🙏 致谢
 
@@ -135,6 +154,14 @@ firmware/
 
 **⭐ 如果这个项目对你有帮助，请给它一个星标！**
 
-Made with ❤️ by ViolinLee
+**📺 关注B站 [@智造师_RoboticsCV](https://space.bilibili.com/智造师_RoboticsCV) 获取更多机器人项目**
+
+**💬 关注公众号 `RoboticsCV` 获取技术文章和教程**
+
+Made with ❤️ by [ViolinLee](https://github.com/ViolinLee)
+
+---
+
+Copyright © 2024 ViolinLee. Licensed under GPL-3.0.
 
 </div>
