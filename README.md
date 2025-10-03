@@ -72,19 +72,34 @@ firmware/
 <div align="center">
 
 ### 结构与硬件设计
-![结构设计](resource/45deg.jpg)
-*机器人结构*
-
-![PCB电路板](resource/pcb-board.jpg)
-*PCB控制板*
-
-![小智拓展板](resource/xiaozhi.jpg)
-*小智AI拓展板集成*
+<div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+  <div style="text-align: center; width: 33%;">
+    <img src="resource/45deg.jpg" alt="结构设计" style="width: 100%;">
+    <p><em>机器人结构</em></p>
+  </div>
+  <div style="text-align: center; width: 33%;">
+    <img src="resource/pcb-board.jpg" alt="PCB电路板" style="width: 100%;">
+    <p><em>PCB控制板</em></p>
+  </div>
+  <div style="text-align: center; width: 33%;">
+    <img src="resource/xiaozhi.jpg" alt="小智拓展板" style="width: 100%;">
+    <p><em>小智AI拓展板</em></p>
+  </div>
+</div>
 
 </div>
 
 ## 🛒 购买链接
 - **套件购买**: [NodeHexa 六足机器人套件](https://item.taobao.com/item.htm?ft=t&id=810056770425)
+
+## 📱 复刻教程
+
+<div align="center">
+
+![公众号二维码](resource/qrcode_8cm.jpg)   
+*扫描上方二维码，关注**公众号**获取六足机器人复刻教程及更多技术资源*
+
+</div>
 
 ## 🚀 快速开始
 
