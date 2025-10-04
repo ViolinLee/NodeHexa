@@ -45,6 +45,7 @@ namespace hexapod {
     }
 
     void HexapodClass::setMovementSpeed(float speed) {
+        // 受限于舵机频率(50hz->20ms)，速度控制只能是离散的(1/n)
         movement_.setSpeed(speed);
         char buffer[100]; 
         snprintf(buffer, sizeof(buffer), "运动速度已设置为: %.2f (范围: %.1f - %.1f)", 
@@ -53,7 +54,7 @@ namespace hexapod {
     }
 
     void HexapodClass::setMovementSpeedLevel(SpeedLevel level) {
-        if (level < SPEED_SLOW || level > SPEED_FASTEST) {
+        if (level < SPEED_SLOWEST || level > SPEED_FAST) {
             LOG_INFO("错误: 无效的速度档位");
             return;
         }

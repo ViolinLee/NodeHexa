@@ -18,21 +18,21 @@ namespace hexapod {
         const int movementInterval = 20;
         const int movementSwitchDuration = 150;
 
-        // speed control. range: 0.3 - 1.0 (1.0 is fastest)
+        // speed control. range: 0.25 - 1.0 (1.0 is fastest)
         const float defaultSpeed = 0.5;
-        const float minSpeed = 0.3;
+        const float minSpeed = 0.25;
         const float maxSpeed = 1.0;
     }
 
     // Speed level enumeration
     enum SpeedLevel {
-        SPEED_SLOW = 0,      // 0.3x
-        SPEED_MEDIUM = 1,    // 0.5x (default)
-        SPEED_FAST = 2,      // 0.75x
-        SPEED_FASTEST = 3    // 1.0x
+        SPEED_SLOWEST = 0,   // 0.25x (极慢)
+        SPEED_SLOW = 1,      // 0.33x (慢速)
+        SPEED_MEDIUM = 2,    // 0.5x (中速, default)
+        SPEED_FAST = 3       // 1.0x (快速)
     };
 
     // Speed level to multiplier mapping
-    const float speedLevelMultipliers[] = {0.3, 0.5, 0.75, 1.0};
+    const float speedLevelMultipliers[] = {0.25, 0.33, 0.5, 1.0};
 
 }

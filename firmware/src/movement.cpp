@@ -54,7 +54,8 @@ namespace hexapod {
 
         index_ = table.entries[std::rand() % table.entriesCount];
         int actualDuration = (int)(table.stepDuration / speed_);
-        remainTime_ = config::movementSwitchDuration > actualDuration ? config::movementSwitchDuration : actualDuration;
+        int actualSwitchDuration = (int)(config::movementSwitchDuration / speed_);
+        remainTime_ = actualSwitchDuration > actualDuration ? actualSwitchDuration : actualDuration;
     }
 
     const Locations& Movement::next(int elapsed) {

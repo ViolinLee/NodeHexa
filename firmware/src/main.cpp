@@ -243,7 +243,7 @@ void setting_loop() {
 /* HandleRoot
 */
 void handleRoot(AsyncWebServerRequest *request) {
-    AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", web_controller_html_gz, web_controller_html_gz_len);
+    AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", web_controller_html_gz, web_controller_html_gz_len);
     response->addHeader("Content-Encoding","gzip");
     request->send(response);
 }
@@ -251,7 +251,7 @@ void handleRoot(AsyncWebServerRequest *request) {
 /* HandleCalibrationPage
 */
 void handleCalibrationPage(AsyncWebServerRequest *request) {
-  AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", calibration_html_gz, calibration_html_gz_len);
+  AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", calibration_html_gz, calibration_html_gz_len);
   response->addHeader("Content-Encoding", "gzip");
   request->send(response);
 }
@@ -276,7 +276,7 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
       _mode = 0;
       LOG_INFO("Leave Calibration Mode.");
 
-      AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", web_controller_html_gz, calibration_html_gz_len);
+      AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", web_controller_html_gz, calibration_html_gz_len);
       response->addHeader("Content-Encoding", "gzip");
       request->send(response);
     }
@@ -355,7 +355,7 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         // Handle speed level control
         if (json.containsKey("speedLevel")) {
           int level = json["speedLevel"];
-          if (level >= hexapod::SPEED_SLOW && level <= hexapod::SPEED_FASTEST) {
+          if (level >= hexapod::SPEED_SLOWEST && level <= hexapod::SPEED_FAST) {
             hexapod::Hexapod.setMovementSpeedLevel((hexapod::SpeedLevel)level);
             Serial.printf("WebSocket: Speed level set to %d\n", level);
           } else {
@@ -582,7 +582,7 @@ void parseSerialMovementCommand(const String& jsonString) {
   if (json.containsKey("speedLevel")) {
     hasValidCommand = true;
     int level = json["speedLevel"];
-    if (level >= hexapod::SPEED_SLOW && level <= hexapod::SPEED_FASTEST) {
+    if (level >= hexapod::SPEED_SLOWEST && level <= hexapod::SPEED_FAST) {
       hexapod::Hexapod.setMovementSpeedLevel((hexapod::SpeedLevel)level);
       Serial.printf("UART2: Speed level set to %d\n", level);
       

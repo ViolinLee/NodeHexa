@@ -100,9 +100,9 @@
 
     /* 速度控制区域样式 */
     .speed-control {
-      max-width: 600px;
-      margin: 20px auto;
-      padding: 20px;
+      max-width: 500px;
+      margin: 10px auto;
+      padding: 10px;
       background-color: #f5f5f5;
       border-radius: 15px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -114,101 +114,39 @@
       margin-bottom: 10px;
       text-align: center;
     }
-    .speed-value {
-      font-size: 24px;
-      font-weight: bold;
-      color: #1E90FF;
-      text-align: center;
-      margin: 10px 0;
-    }
-    .slider {
-      -webkit-appearance: none;
-      width: 100%;
-      height: 15px;
-      border-radius: 10px;
-      background: #d3d3d3;
-      outline: none;
-      opacity: 0.7;
-      transition: opacity 0.2s;
-    }
-    .slider:hover {
-      opacity: 1;
-    }
-    .slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      background: #1E90FF;
-      cursor: pointer;
-    }
-    .slider::-moz-range-thumb {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      background: #1E90FF;
-      cursor: pointer;
-      border: none;
-    }
-    .speed-markers {
+    /* 速度档位按钮样式 */
+    .speed-levels {
       display: flex;
-      justify-content: space-between;
-      margin-top: 5px;
-      font-size: 12px;
-      color: #666;
-    }
-
-    /* Toggle开关样式 */
-    .toggle-container {
-      display: flex;
-      align-items: center;
       justify-content: center;
-      margin-top: 15px;
       gap: 10px;
+      margin: 15px 0;
+      flex-wrap: wrap;
     }
-    .toggle-label {
-      font-size: 14px;
-      color: #666;
-    }
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 50px;
-      height: 24px;
-    }
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-    .toggle-slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #ccc;
-      transition: 0.4s;
-      border-radius: 24px;
-    }
-    .toggle-slider:before {
-      position: absolute;
-      content: "";
-      height: 18px;
-      width: 18px;
-      left: 3px;
-      bottom: 3px;
+    .speed-btn {
+      padding: 10px 20px;
+      border: 2px solid #1E90FF;
       background-color: white;
-      transition: 0.4s;
-      border-radius: 50%;
+      color: #1E90FF;
+      border-radius: 25px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: bold;
+      transition: all 0.3s ease;
+      min-width: 80px;
     }
-    input:checked + .toggle-slider {
+    .speed-btn:hover {
       background-color: #1E90FF;
+      color: white;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(30, 144, 255, 0.3);
     }
-    input:checked + .toggle-slider:before {
-      transform: translateX(26px);
+    .speed-btn.active {
+      background-color: #1E90FF;
+      color: white;
+      box-shadow: 0 2px 4px rgba(30, 144, 255, 0.3);
+    }
+    .speed-btn.active:hover {
+      background-color: #0b7dda;
     }
 
     /* 页脚署名样式 */
@@ -222,7 +160,7 @@
       box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
     }
     .footer-content {
-      max-width: 600px;
+      max-width: 800px;
       margin: 0 auto;
     }
     .footer-title {
@@ -233,8 +171,8 @@
     .footer-links {
       display: flex;
       justify-content: center;
-      gap: 20px;
-      flex-wrap: wrap;
+      gap: 15px;
+      flex-wrap: nowrap;
       margin-top: 12px;
     }
     .footer-link {
@@ -272,21 +210,11 @@
   <!-- 速度控制区域 -->
   <div class="speed-control">
     <div class="speed-label">运动速度控制</div>
-    <div class="speed-value">速度: <span id="speedValue">0.50</span></div>
-    <input type="range" min="0.3" max="1.0" step="0.05" value="0.5" class="slider" id="speedSlider">
-    <div class="speed-markers">
-      <span>慢速 (0.3)</span>
-      <span>中速 (0.5)</span>
-      <span>快速 (0.75)</span>
-      <span>最快 (1.0)</span>
-    </div>
-    <div class="toggle-container">
-      <span class="toggle-label">松开发送</span>
-      <label class="switch">
-        <input type="checkbox" id="realtimeToggle">
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="toggle-label">实时发送</span>
+    <div class="speed-levels">
+      <button class="speed-btn" data-speed="0.25" data-zh="极慢" data-en="Slowest">极慢</button>
+      <button class="speed-btn" data-speed="0.33" data-zh="慢速" data-en="Slow">慢速</button>
+      <button class="speed-btn active" data-speed="0.5" data-zh="中速" data-en="Medium">中速</button>
+      <button class="speed-btn" data-speed="1.0" data-zh="快速" data-en="Fastest">快速</button>
     </div>
   </div>
   
@@ -379,47 +307,26 @@
     }
 
     function initSpeedControl() {
-      const speedSlider = document.getElementById('speedSlider');
-      const speedValue = document.getElementById('speedValue');
-      const realtimeToggle = document.getElementById('realtimeToggle');
+      const speedButtons = document.querySelectorAll('.speed-btn');
       
-      let lastSentSpeed = speedSlider.value;
-      let inputTimeout = null;
+      let currentSpeed = 0.5; // 默认中速
       
-      // 更新显示值
-      speedSlider.addEventListener('input', function() {
-        speedValue.textContent = parseFloat(this.value).toFixed(2);
-        
-        // 如果开启实时发送
-        if (realtimeToggle.checked) {
-          // 使用节流，避免发送过于频繁
-          if (inputTimeout) {
-            clearTimeout(inputTimeout);
-          }
-          inputTimeout = setTimeout(() => {
-            if (this.value !== lastSentSpeed) {
-              sendSpeed(this.value);
-              lastSentSpeed = this.value;
-            }
-          }, 100); // 100ms节流
-        }
-      });
-      
-      // 松开滑块时发送（无论toggle状态如何，都确保发送最终值）
-      speedSlider.addEventListener('change', function() {
-        if (this.value !== lastSentSpeed) {
-          sendSpeed(this.value);
-          lastSentSpeed = this.value;
-        }
-      });
-      
-      // Toggle状态变化时的提示
-      realtimeToggle.addEventListener('change', function() {
-        if (this.checked) {
-          console.log('实时发送模式已开启');
-        } else {
-          console.log('松开发送模式已开启');
-        }
+      // 档位按钮点击事件
+      speedButtons.forEach(button => {
+        button.addEventListener('click', function() {
+          // 移除所有按钮的active状态
+          speedButtons.forEach(btn => btn.classList.remove('active'));
+          // 添加当前按钮的active状态
+          this.classList.add('active');
+          
+          // 更新当前速度值
+          currentSpeed = parseFloat(this.dataset.speed);
+          
+          // 发送速度命令
+          sendSpeed(currentSpeed);
+          
+          console.log('速度已切换到: ' + this.textContent + ' (值: ' + currentSpeed + ')');
+        });
       });
     }
 
@@ -430,13 +337,6 @@
       pageTitle: { zh: '机器人控制', en: 'Robot Control' },
       langButton: { zh: 'English', en: '中文' },
       speedLabel: { zh: '运动速度控制', en: 'Movement Speed Control' },
-      speedText: { zh: '速度', en: 'Speed' },
-      slowText: { zh: '慢速', en: 'Slow' },
-      mediumText: { zh: '中速', en: 'Medium' },
-      fastText: { zh: '快速', en: 'Fast' },
-      fastestText: { zh: '最快', en: 'Fastest' },
-      releaseMode: { zh: '松开发送', en: 'On Release' },
-      realtimeMode: { zh: '实时发送', en: 'Realtime' },
       footerTitle: { zh: '开源项目 · NodeHexa 六足机器人', en: 'Open Source · NodeHexa Hexapod Robot' },
       bilibiliText: { zh: 'B站: 智造师_RoboticsCV', en: 'Bilibili: 智造师_RoboticsCV' },
       githubText: { zh: 'GitHub: ViolinLee', en: 'GitHub: ViolinLee' },
@@ -454,20 +354,12 @@
       
       // 更新速度控制区域文本
       document.querySelector('.speed-label').textContent = langTexts.speedLabel[currentLang];
-      document.querySelector('.speed-value').innerHTML = langTexts.speedText[currentLang] + ': <span id="speedValue">' + 
-        document.getElementById('speedValue').textContent + '</span>';
       
-      // 更新速度标记
-      const markers = document.querySelectorAll('.speed-markers span');
-      markers[0].textContent = langTexts.slowText[currentLang] + ' (0.3)';
-      markers[1].textContent = langTexts.mediumText[currentLang] + ' (0.5)';
-      markers[2].textContent = langTexts.fastText[currentLang] + ' (0.75)';
-      markers[3].textContent = langTexts.fastestText[currentLang] + ' (1.0)';
-      
-      // 更新toggle标签
-      const toggleLabels = document.querySelectorAll('.toggle-label');
-      toggleLabels[0].textContent = langTexts.releaseMode[currentLang];
-      toggleLabels[1].textContent = langTexts.realtimeMode[currentLang];
+      // 更新速度档位按钮文本
+      const speedButtons = document.querySelectorAll('.speed-btn[data-zh][data-en]');
+      speedButtons.forEach(button => {
+        button.textContent = button.getAttribute('data-' + currentLang);
+      });
       
       // 更新所有按钮文本
       const buttons = document.querySelectorAll('.button[data-zh][data-en]');

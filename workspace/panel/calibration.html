@@ -33,10 +33,10 @@
     }
     
     .quantity {
-      width: 70px;
-      height: 30px;
+      width: 40px;
+      height: 28px;
       text-align: center;
-      font-size: 16px;
+      font-size: 14px;
     }
     
     button {
@@ -67,40 +67,43 @@
     
     .leg-group {
       display: inline-block;
-      margin: 10px;
-      padding: 10px;
-      border: 2px solid #fc0;
-      border-radius: 8px;
+      margin: 6px;
+      padding: 3px;
+      border: 1px solid #fc0;
+      border-radius: 6px;
       background-color: #fffaf0;
+      vertical-align: top;
+      white-space: nowrap;
     }
     
     .leg-label {
       display: block;
       font-weight: bold;
-      font-size: 14px;
-      margin-bottom: 8px;
+      font-size: 12px;
+      margin-bottom: 4px;
       color: #333;
     }
     
     .joint-control {
       display: inline-block;
-      margin: 5px;
-      padding: 5px;
+      margin: 1px;
+      padding: 1px;
       background-color: white;
-      border-radius: 5px;
+      border-radius: 3px;
+      vertical-align: top;
     }
     
     .joint-label {
       display: block;
-      font-size: 12px;
+      font-size: 10px;
       color: #666;
-      margin-bottom: 3px;
+      margin-bottom: 2px;
     }
     
     input[type="button"] {
-      width: 30px;
-      height: 30px;
-      font-size: 18px;
+      width: 26px;
+      height: 26px;
+      font-size: 16px;
       font-weight: bold;
     }
     
@@ -111,7 +114,49 @@
     }
     
     .row {
-      margin: 15px 0;
+      margin: 10px 0;
+      white-space: nowrap;
+      overflow-x: auto;
+    }
+    
+    /* 移动端适配 */
+    @media (max-width: 768px) {
+      .leg-group {
+        min-width: 200px;
+        margin: 2px;
+        padding: 2px;
+      }
+      
+      .joint-control {
+        margin: 0px;
+        padding: 0px;
+      }
+      
+      .quantity {
+        width: 35px;
+        height: 22px;
+        font-size: 12px;
+      }
+      
+      input[type="button"] {
+        width: 20px;
+        height: 20px;
+        font-size: 12px;
+      }
+      
+      .leg-label {
+        font-size: 11px;
+        margin-bottom: 2px;
+      }
+      
+      .joint-label {
+        font-size: 9px;
+        margin-bottom: 1px;
+      }
+      
+      .row {
+        margin: 8px 0;
+      }
     }
 
     /* 页脚署名样式 */
@@ -125,7 +170,7 @@
       box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
     }
     .footer-content {
-      max-width: 600px;
+      max-width: 800px;
       margin: 0 auto;
     }
     .footer-title {
@@ -136,8 +181,8 @@
     .footer-links {
       display: flex;
       justify-content: center;
-      gap: 20px;
-      flex-wrap: wrap;
+      gap: 15px;
+      flex-wrap: nowrap;
       margin-top: 12px;
     }
     .footer-link {
@@ -182,47 +227,47 @@
       <!--Left Frontal Leg 5-->
       <span class="leg-group">
         <span class="leg-label" data-zh="左前腿 (5)" data-en="Left Front (5)">左前腿 (5)</span>
-        <div class="joint-control">
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(5, 0, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(5, 1, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(5, 2, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
+        </span>
       </span>
       
       <!--Right Frontal Leg 0-->
       <span class="leg-group">
         <span class="leg-label" data-zh="右前腿 (0)" data-en="Right Front (0)">右前腿 (0)</span>
-        <div class="joint-control">
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(0, 0, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(0, 1, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(0, 2, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
+        </span>
       </span>
     </div>
 
@@ -231,47 +276,47 @@
       <!--Left Middle Leg 4-->
       <span class="leg-group">
         <span class="leg-label" data-zh="左中腿 (4)" data-en="Left Middle (4)">左中腿 (4)</span>
-        <div class="joint-control">
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(4, 0, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(4, 1, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(4, 2, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
+        </span>
       </span>
       
       <!--Right Middle Leg 1-->
       <span class="leg-group">
         <span class="leg-label" data-zh="右中腿 (1)" data-en="Right Middle (1)">右中腿 (1)</span>
-        <div class="joint-control">
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(1, 0, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(1, 1, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(1, 2, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
+        </span>
       </span>
     </div>
 
@@ -280,47 +325,47 @@
       <!--Left Back Leg 3-->
       <span class="leg-group">
         <span class="leg-label" data-zh="左后腿 (3)" data-en="Left Back (3)">左后腿 (3)</span>
-        <div class="joint-control">
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(3, 0, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(3, 1, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(3, 2, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
+        </span>
       </span>
       
       <!--Right Back Leg 2-->
       <span class="leg-group">
         <span class="leg-label" data-zh="右后腿 (2)" data-en="Right Back (2)">右后腿 (2)</span>
-        <div class="joint-control">
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(2, 0, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(2, 1, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
-        <div class="joint-control">
+        </span>
+        <span class="joint-control">
           <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
           <input type="button" class="decrease" value="-"> 
           <input type="text" class="quantity" value="0" onchange="sendData(2, 2, event.target.value)"/> 
           <input type="button" class="increase" value="+">
-        </div>
+        </span>
       </span>
     </div>
   </div>

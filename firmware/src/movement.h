@@ -55,7 +55,7 @@ namespace hexapod {
         int index_;             // index in mode position table
         bool transiting_;       // if still in transiting to new mode
         int remainTime_;
-        float speed_;           // speed multiplier, range: 0.3 - 1.0
+        float speed_;           // speed multiplier, range: 0.25 - 1.0
     };
 
 }
