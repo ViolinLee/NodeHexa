@@ -45,12 +45,17 @@ namespace hexapod {
 
         const Locations& next(int elapsed);
 
+        // Speed control API
+        void setSpeed(float speed);
+        float getSpeed() const;
+
     private:
         MovementMode mode_;
         Locations position_;
         int index_;             // index in mode position table
         bool transiting_;       // if still in transiting to new mode
         int remainTime_;
+        float speed_;           // speed multiplier, range: 0.25 - 1.0
     };
 
 }

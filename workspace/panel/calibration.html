@@ -1,0 +1,525 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style type="text/css">
+    .title {
+      text-align: center;
+      position: relative;
+      font-size: 32px;
+      margin: 20px 0;
+    }
+    .lang-switch {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      background-color: #1E90FF;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 15px;
+      font-size: 14px;
+      cursor: pointer;
+      box-shadow: 0 4px #999;
+      transition: all 0.3s;
+    }
+    .lang-switch:hover {
+      background-color: #0b7dda;
+    }
+    .lang-switch:active {
+      box-shadow: 0 2px #666;
+      transform: translateY(-48%);
+    }
+    
+    .quantity {
+      width: 40px;
+      height: 28px;
+      text-align: center;
+      font-size: 14px;
+    }
+    
+    button {
+      color: black;
+      background: lightblue;
+      border: 2px solid #000;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    button:hover {
+      background: #87CEEB;
+    }
+    
+    .control-buttons {
+      text-align: center;
+      margin: 20px 0;
+    }
+    
+    .control-buttons button {
+      width: 200px;
+      height: 40px;
+      margin: 0 10px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    
+    .leg-group {
+      display: inline-block;
+      margin: 6px;
+      padding: 3px;
+      border: 1px solid #fc0;
+      border-radius: 6px;
+      background-color: #fffaf0;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    
+    .leg-label {
+      display: block;
+      font-weight: bold;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #333;
+    }
+    
+    .joint-control {
+      display: inline-block;
+      margin: 1px;
+      padding: 1px;
+      background-color: white;
+      border-radius: 3px;
+      vertical-align: top;
+    }
+    
+    .joint-label {
+      display: block;
+      font-size: 10px;
+      color: #666;
+      margin-bottom: 2px;
+    }
+    
+    input[type="button"] {
+      width: 26px;
+      height: 26px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    
+    .calibration-container {
+      text-align: center;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .row {
+      margin: 10px 0;
+      white-space: nowrap;
+      overflow-x: auto;
+    }
+    
+    /* 移动端适配 */
+    @media (max-width: 768px) {
+      .leg-group {
+        min-width: 200px;
+        margin: 2px;
+        padding: 2px;
+      }
+      
+      .joint-control {
+        margin: 0px;
+        padding: 0px;
+      }
+      
+      .quantity {
+        width: 35px;
+        height: 22px;
+        font-size: 12px;
+      }
+      
+      input[type="button"] {
+        width: 20px;
+        height: 20px;
+        font-size: 12px;
+      }
+      
+      .leg-label {
+        font-size: 11px;
+        margin-bottom: 2px;
+      }
+      
+      .joint-label {
+        font-size: 9px;
+        margin-bottom: 1px;
+      }
+      
+      .row {
+        margin: 8px 0;
+      }
+    }
+
+    /* 页脚署名样式 */
+    .footer {
+      margin-top: 40px;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      text-align: center;
+      border-radius: 10px 10px 0 0;
+      box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .footer-content {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .footer-title {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      flex-wrap: nowrap;
+      margin-top: 12px;
+    }
+    .footer-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: white;
+      text-decoration: none;
+      font-size: 14px;
+      padding: 8px 15px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
+      transition: all 0.3s;
+    }
+    .footer-link:hover {
+      background: rgba(255, 255, 255, 0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    .footer-icon {
+      width: 20px;
+      height: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1 class="title">
+    <span id="pageTitle">舵机校准</span>
+    <button class="lang-switch" onclick="toggleLanguage()">English</button>
+  </h1>
+
+  <div class="calibration-container">
+    <div class="control-buttons">
+      <button id="CALIBRATESTART" type="button" onclick="buttonclick(this);" data-zh="开始校准" data-en="Start Calibration">开始校准</button>
+      <a href="/">
+        <button id="CALIBRATESAVE" type="button" onclick="buttonclick(this);" data-zh="保存并返回" data-en="Save & Return">保存并返回</button>
+      </a>
+    </div>
+
+    <!-- 前腿 Front Legs -->
+    <div class="row">
+      <!--Left Frontal Leg 5-->
+      <span class="leg-group">
+        <span class="leg-label" data-zh="左前腿 (5)" data-en="Left Front (5)">左前腿 (5)</span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(5, 0, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(5, 1, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(5, 2, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+      </span>
+      
+      <!--Right Frontal Leg 0-->
+      <span class="leg-group">
+        <span class="leg-label" data-zh="右前腿 (0)" data-en="Right Front (0)">右前腿 (0)</span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(0, 0, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(0, 1, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(0, 2, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+      </span>
+    </div>
+
+    <!-- 中腿 Middle Legs -->
+    <div class="row">
+      <!--Left Middle Leg 4-->
+      <span class="leg-group">
+        <span class="leg-label" data-zh="左中腿 (4)" data-en="Left Middle (4)">左中腿 (4)</span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(4, 0, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(4, 1, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(4, 2, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+      </span>
+      
+      <!--Right Middle Leg 1-->
+      <span class="leg-group">
+        <span class="leg-label" data-zh="右中腿 (1)" data-en="Right Middle (1)">右中腿 (1)</span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(1, 0, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(1, 1, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(1, 2, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+      </span>
+    </div>
+
+    <!-- 后腿 Back Legs -->
+    <div class="row">
+      <!--Left Back Leg 3-->
+      <span class="leg-group">
+        <span class="leg-label" data-zh="左后腿 (3)" data-en="Left Back (3)">左后腿 (3)</span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(3, 0, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(3, 1, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(3, 2, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+      </span>
+      
+      <!--Right Back Leg 2-->
+      <span class="leg-group">
+        <span class="leg-label" data-zh="右后腿 (2)" data-en="Right Back (2)">右后腿 (2)</span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节0" data-en="Joint 0">关节0</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(2, 0, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节1" data-en="Joint 1">关节1</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(2, 1, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+        <span class="joint-control">
+          <span class="joint-label" data-zh="关节2" data-en="Joint 2">关节2</span>
+          <input type="button" class="decrease" value="-"> 
+          <input type="text" class="quantity" value="0" onchange="sendData(2, 2, event.target.value)"/> 
+          <input type="button" class="increase" value="+">
+        </span>
+      </span>
+    </div>
+  </div>
+
+  <!-- 页脚署名 -->
+  <footer class="footer">
+    <div class="footer-content">
+      <div class="footer-title" id="footerTitle">开源项目 · NodeHexa 六足机器人</div>
+      <div class="footer-links">
+        <a href="https://space.bilibili.com/智造师_RoboticsCV" target="_blank" class="footer-link" title="B站主页">
+          <svg class="footer-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.765 1.56-3.76 1.004-.996 2.262-1.52 3.773-1.574h.774l-1.174-1.12a1.234 1.234 0 0 1-.373-.906c0-.356.124-.658.373-.907l.027-.027c.267-.249.573-.373.92-.373.347 0 .653.124.92.373L9.653 4.44c.071.071.134.142.187.213h4.267a.836.836 0 0 1 .16-.213l2.853-2.747c.267-.249.573-.373.92-.373.347 0 .662.151.929.4.267.249.391.551.391.907 0 .355-.124.657-.373.906zM5.333 7.24c-.746.018-1.373.276-1.88.773-.506.498-.769 1.13-.786 1.894v7.52c.017.764.28 1.395.786 1.893.507.498 1.134.756 1.88.773h13.334c.746-.017 1.373-.275 1.88-.773.506-.498.769-1.129.786-1.893v-7.52c-.017-.765-.28-1.396-.786-1.894-.507-.497-1.134-.755-1.88-.773zM8 11.107c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c0-.373.129-.689.386-.947.258-.257.574-.386.947-.386zm8 0c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c.017-.391.15-.711.4-.96.249-.249.56-.373.933-.373Z"/>
+          </svg>
+          <span id="bilibiliText">B站: 智造师_RoboticsCV</span>
+        </a>
+        <a href="https://github.com/ViolinLee" target="_blank" class="footer-link" title="GitHub主页">
+          <svg class="footer-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span id="githubText">GitHub: ViolinLee</span>
+        </a>
+        <span class="footer-link" title="微信公众号" style="cursor: default;">
+          <svg class="footer-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-1.797-.052-3.746.512-5.28 1.786-1.72 1.428-2.687 3.72-1.78 6.22.942 2.453 3.666 4.229 6.884 4.229.826 0 1.622-.12 2.361-.336a.722.722 0 0 1 .598.082l1.584.926a.272.272 0 0 0 .14.047c.134 0 .24-.111.24-.247 0-.06-.023-.12-.038-.177l-.327-1.233a.582.582 0 0 1-.023-.156.49.49 0 0 1 .201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-6.656-6.088V8.89c-.135-.01-.27-.027-.407-.03zm-2.53 3.274c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.969-.982zm4.844 0c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.969-.982z"/>
+          </svg>
+          <span id="wechatText">公众号: RoboticsCV</span>
+        </span>
+      </div>
+    </div>
+  </footer>
+
+<script>
+let increment = document.getElementsByClassName("increase");
+for (let i = 0; i < increment.length; i++) {
+  increment[i].index = i;
+  increment[i].onclick = function () {
+      let flag = this.index;
+      let q = document.getElementsByClassName("quantity")[flag];
+      let newValue = parseInt(q.value) + 1;
+      q.setAttribute('value', newValue);
+
+      sendDataByIndex(i, newValue);
+  }
+}
+
+let decrement = document.getElementsByClassName('decrease');
+for(let j = 0; j < decrement.length; j++) {
+  decrement[j].index = j;
+  decrement[j].onclick = function() {
+      let flag = this.index;
+      let q = document.getElementsByClassName("quantity")[flag];
+      let newValue = parseInt(q.value) - 1;
+      q.setAttribute('value', newValue);
+
+      sendDataByIndex(j, newValue);
+  }
+}
+
+function sendDataByIndex(id, newValue) {
+  let legIndex;
+  let partIndex = id % 3;
+
+  let legOrder = Math.floor((id) / 3);
+  switch (legOrder) {
+    case 0:
+      legIndex = 5;
+      break;
+    case 1:
+      legIndex = 0;
+      break;
+    case 2:
+      legIndex = 4;
+      break;
+    case 3:
+      legIndex = 1;
+      break;
+    case 4:
+      legIndex = 3;
+      break;
+    case 5:
+      legIndex = 2;
+      break;
+  }
+
+  sendData(legIndex, partIndex, newValue);
+}
+
+function sendData(legIndex, partIndex, offset) {
+  var intOffset = parseInt(offset, 10);
+
+  var xmlhttp = new XMLHttpRequest();
+  xmlhttp.open("POST", '/calibration', true);
+  xmlhttp.setRequestHeader("Content-Type", "application/json");
+  var data = {
+    legIndex: legIndex,
+    partIndex: partIndex,
+    offset: intOffset,
+    modeChanged: false
+  };
+  xmlhttp.send(JSON.stringify(data));
+}
+
+function buttonclick(e) {
+  var xmlhttp = new XMLHttpRequest();
+  xmlhttp.open("POST", '/calibration', true);
+  xmlhttp.setRequestHeader("Content-Type", "application/json");
+
+  var data = {
+    modeChanged: true,
+    operation: e.id
+  };
+  xmlhttp.send(JSON.stringify(data));
+}
+
+// 语言切换功能
+let currentLang = 'zh'; // 默认中文
+
+const langTexts = {
+  pageTitle: { zh: '舵机校准', en: 'Servo Calibration' },
+  langButton: { zh: 'English', en: '中文' },
+  footerTitle: { zh: '开源项目 · NodeHexa 六足机器人', en: 'Open Source · NodeHexa Hexapod Robot' },
+  bilibiliText: { zh: 'B站: 智造师_RoboticsCV', en: 'Bilibili: 智造师_RoboticsCV' },
+  githubText: { zh: 'GitHub: ViolinLee', en: 'GitHub: ViolinLee' },
+  wechatText: { zh: '公众号: RoboticsCV', en: 'WeChat: RoboticsCV' }
+};
+
+function toggleLanguage() {
+  currentLang = currentLang === 'zh' ? 'en' : 'zh';
+  
+  // 更新页面标题
+  document.getElementById('pageTitle').textContent = langTexts.pageTitle[currentLang];
+  
+  // 更新语言切换按钮文本
+  document.querySelector('.lang-switch').textContent = langTexts.langButton[currentLang];
+  
+  // 更新所有带data-zh和data-en属性的元素
+  const elements = document.querySelectorAll('[data-zh][data-en]');
+  elements.forEach(element => {
+    element.textContent = element.getAttribute('data-' + currentLang);
+  });
+  
+  // 更新页脚文本
+  document.getElementById('footerTitle').textContent = langTexts.footerTitle[currentLang];
+  document.getElementById('bilibiliText').textContent = langTexts.bilibiliText[currentLang];
+  document.getElementById('githubText').textContent = langTexts.githubText[currentLang];
+  document.getElementById('wechatText').textContent = langTexts.wechatText[currentLang];
+  
+  console.log('Language switched to: ' + (currentLang === 'zh' ? '中文' : 'English'));
+}
+
+// 页面加载时默认显示中文
+window.onload = function() {
+  // 默认显示中文，无需调用toggleLanguage
+};
+</script>
+</body>
+</html>

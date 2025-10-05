@@ -68,3 +68,6 @@ venv/
 *.tar.gz
 *.rar
 *.7z
+
+# Experiments
+experiments/

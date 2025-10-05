@@ -44,6 +44,34 @@ namespace hexapod {
         }
     }
 
+    void HexapodClass::setMovementSpeed(float speed) {
+        // 受限于舵机频率(50hz->20ms)，速度控制只能是离散的(1/n)
+        movement_.setSpeed(speed);
+        char buffer[100]; 
+        snprintf(buffer, sizeof(buffer), "运动速度已设置为: %.2f (范围: %.1f - %.1f)", 
+                 speed, config::minSpeed, config::maxSpeed);
+        LOG_INFO(buffer);
+    }
+
+    void HexapodClass::setMovementSpeedLevel(SpeedLevel level) {
+        if (level < SPEED_SLOWEST || level > SPEED_FAST) {
+            LOG_INFO("错误: 无效的速度档位");
+            return;
+        }
+        
+        float speed = speedLevelMultipliers[level];
+        setMovementSpeed(speed);
+        
+        const char* levelNames[] = {"慢速", "中速", "快速", "最快"};
+        char buffer[100];
+        snprintf(buffer, sizeof(buffer), "速度档位已设置为: %s (%.2f)", levelNames[level], speed);
+        LOG_INFO(buffer);
+    }
+
+    float HexapodClass::getMovementSpeed() const {
+        return movement_.getSpeed();
+    }
+
     void HexapodClass::calibrationSave() {
         // {"leg1": [0, 0, 0], ..., "leg6: [0, 0, 0]"}
 

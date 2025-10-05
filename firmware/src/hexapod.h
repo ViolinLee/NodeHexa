@@ -3,6 +3,7 @@
 #include "movement.h"
 #include "leg.h"
 #include "calibration.h"
+#include "config.h"
 
 namespace hexapod {
 
@@ -17,6 +18,11 @@ namespace hexapod {
         // Movement API
 
         void processMovement(MovementMode mode, int elapsed = 0);
+
+        // Speed control API
+        void setMovementSpeed(float speed);
+        void setMovementSpeedLevel(SpeedLevel level);
+        float getMovementSpeed() const;
 
         // Calibration API
 
