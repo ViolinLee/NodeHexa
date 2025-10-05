@@ -1,10 +1,10 @@
-# 🤖 NodeHexa - 智能六足机器人
+# 🤖 NodeHexa - 六足机器人
 
 <div align="center">
 
 ![NodeHexa Logo](resource/frontal.jpg)
 
-**一个基于ESP32的智能六足机器人项目，支持Web控制和多种运动模式**
+**一个基于ESP32的六足机器人项目，支持Web控制和多种运动模式**
 
 [![Platform](https://img.shields.io/badge/Platform-ESP32-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Framework](https://img.shields.io/badge/Framework-Arduino-green.svg)](https://www.arduino.cc/)
@@ -15,7 +15,7 @@
 
 ## 📖 项目简介
 
-NodeHexa是一个开源的六足机器人项目，基于ESP32微控制器开发。该项目集成了先进的运动控制算法、Web界面控制和实时校准功能，为机器人爱好者和研究人员提供了一个完整的六足机器人解决方案。
+NodeHexa是一个开源的六足机器人项目，基于ESP32微控制器开发。该项目集成了运动控制算法、Web界面控制和实时校准功能，为机器人爱好者和研究人员提供了一个完整的六足机器人解决方案。
 
 ## ✨ 核心特性
 
