@@ -91,13 +91,14 @@ firmware/
 
 ## 🛒 购买链接
 - **套件购买**: [NodeHexa 六足机器人套件](https://item.taobao.com/item.htm?ft=t&id=810056770425)
+- **小智拓展板**: 烦请耐心等待，即将上线！
 
 ## 📱 复刻教程
 
 <div align="center">
 
 ![公众号二维码](resource/qrcode_8cm.jpg)   
-*扫描上方二维码，关注**公众号**获取六足机器人复刻教程及更多技术资源*
+*扫描二维码，关注**公众号**发送"**六足**"查看详细复刻教程、交流群！*
 
 </div>
 
@@ -135,27 +136,11 @@ firmware/
 
 欢迎提交Issue和Pull Request来改进项目！
 
-如果您使用本项目进行二次开发或商业应用，请遵守GPL-3.0协议的要求。
-
-## 📄 开源协议
-
-本项目采用 **GNU General Public License v3.0 (GPL-3.0)** 开源协议。
-
-### 主要条款：
-- ✅ **允许**：商业使用、修改、分发、专利使用、私人使用
-- ⚠️ **要求**：
-  - 披露源代码：基于本项目的修改版本必须开源
-  - 协议和版权声明：必须保留原始协议和版权信息
-  - 相同协议分发：衍生作品必须使用相同的GPL-3.0协议
-  - 说明修改：需要说明对原代码的修改内容
-- ❌ **禁止**：不提供任何担保和责任
-
-详细内容请查看 [LICENSE](LICENSE) 文件或访问 [GNU GPL-3.0官网](https://www.gnu.org/licenses/gpl-3.0.html)
-
 ## 🙏 致谢
 
-- 基于 [hexapod-v2-7697](https://github.com/SmallpTsai/hexapod-v2-7697) 项目移植
+- 基于 [hexapod-v2-7697](https://github.com/SmallpTsai/hexapod-v2-7697) 项目二次开发
 - 参考 [PiHexa18](https://github.com/ViolinLee/PiHexa18) 项目设计
+- 语音拓展来自 [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32)
 - 感谢所有开源社区的支持
 
 ---
