@@ -69,25 +69,27 @@ firmware/
 
 ## 🖼️ 项目展示
 
-<div align="center">
-
 ### 结构与硬件设计
-<div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-  <div style="text-align: center; width: 33%;">
-    <img src="resource/45deg.jpg" alt="结构设计" style="width: 100%;">
-    <p><em>机器人结构</em></p>
-  </div>
-  <div style="text-align: center; width: 33%;">
-    <img src="resource/pcb-board.jpg" alt="PCB电路板" style="width: 100%;">
-    <p><em>PCB控制板</em></p>
-  </div>
-  <div style="text-align: center; width: 33%;">
-    <img src="resource/xiaozhi.jpg" alt="小智拓展板" style="width: 100%;">
-    <p><em>小智AI拓展板</em></p>
-  </div>
-</div>
 
-</div>
+<table>
+  <tr>
+    <td align="center">
+      <img src="resource/45deg.jpg" alt="结构设计" width="300"/>
+      <br/>
+      <em>机器人结构</em>
+    </td>
+    <td align="center">
+      <img src="resource/pcb-board.jpg" alt="PCB电路板" width="300"/>
+      <br/>
+      <em>PCB控制板</em>
+    </td>
+    <td align="center">
+      <img src="resource/xiaozhi.jpg" alt="小智拓展板" width="300"/>
+      <br/>
+      <em>小智AI拓展板</em>
+    </td>
+  </tr>
+</table>
 
 ## 🛒 购买链接
 - **套件购买**: [NodeHexa 六足机器人套件](https://item.taobao.com/item.htm?ft=t&id=810056770425)
@@ -101,6 +103,26 @@ firmware/
 *扫描二维码，关注**公众号**发送"**六足**"查看详细复刻教程、交流群！*
 
 </div>
+
+或点击下方**【NodeHexa教程】**直接查看公众号文章列表：
+
+<details>
+<summary><strong>📚 NodeHexa教程</strong></summary>
+
+### 系列教程
+
+1. [六足机器人NodeHexa复刻教程（一）器材准备篇](https://mp.weixin.qq.com/s/QebT1wd3da98jmFbrUHNdA)
+2. [六足机器人NodeHexa复刻教程（二）腿部组装篇](https://mp.weixin.qq.com/s/x1spemwsdwfix2QXKvCDqA)
+3. [六足机器人NodeHexa复刻教程（三）机身组装篇](https://mp.weixin.qq.com/s/Z3uXM__K4puC-hbytVeSNw)
+4. [六足机器人NodeHexa复刻教程（四）编译烧录篇](https://mp.weixin.qq.com/s/InIxQt30JFU6OhD7m3k71Q)
+5. [六足机器人NodeHexa复刻教程（五）功能调试篇](https://mp.weixin.qq.com/s/-viItGeh79Q6JDqvxl3oZQ)
+
+### 功能演示
+
+- [【开源】必看！小智 AI 语音交互的六足机器人，带详细复刻教程，做不出来找我"算账"！（B站视频）](https://www.bilibili.com/video/BV19R4gzzEH7)
+- [【开源】必看！小智 AI 语音控制六足机器人，开启未来趋势的探索之旅！（微信文章）](https://mp.weixin.qq.com/s/sWiMd9wZ3VoEhoh8ss6X7w)
+
+</details>
 
 ## 🚀 快速开始
 
