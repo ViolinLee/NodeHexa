@@ -292,6 +292,7 @@ class ReleaseManager:
 ### 更新内容
 - 固件版本: {self.version}
 - 构建时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- 功能更新: 1-添加速度档位调节功能；2-优化Web控制界面
 
 ### 下载说明
 请下载 `{self.zip_filename}` 文件，解压后按照 README.md 中的说明进行烧录。
