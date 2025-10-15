@@ -1,5 +1,20 @@
 #pragma once
 
+//==============================================================================
+// 运动模式编译开关
+// 注意：同时只能启用一种模式
+//==============================================================================
+// #define USE_WIFI_CONTROL      // WiFi Web控制 + 预定义动作组模式
+#define USE_BLE_CONTROL          // BLE遥控 + 实时步态模式
+
+#ifdef USE_BLE_CONTROL
+  #define USE_REALTIME_GAIT      // 启用实时步态
+  #define USE_BLE_COMM           // 启用BLE通讯
+#else
+  #define USE_PREDEFINED_GAIT    // 使用预定义动作组
+  #define USE_WIFI_COMM          // 使用WiFi通讯
+#endif
+
 namespace hexapod { 
 
     namespace config {
@@ -22,6 +37,36 @@ namespace hexapod {
         const float defaultSpeed = 0.5;
         const float minSpeed = 0.25;
         const float maxSpeed = 1.0;
+
+#ifdef USE_REALTIME_GAIT
+        // Realtime gait parameters
+        const float defaultStride = 50.0;       // 默认步幅 (mm)
+        const float minStride = 30.0;           // 最小步幅 (mm)
+        const float maxStride = 80.0;           // 最大步幅 (mm)
+        
+        const float defaultLiftHeight = 25.0;   // 默认抬腿高度 (mm)
+        const float minLiftHeight = 15.0;       // 最小抬腿高度 (mm)
+        const float maxLiftHeight = 40.0;       // 最大抬腿高度 (mm)
+        
+        const float defaultGaitPeriod = 800.0;  // 默认步态周期 (ms)
+        const float minGaitPeriod = 500.0;      // 最小步态周期 (ms)
+        const float maxGaitPeriod = 1500.0;     // 最大步态周期 (ms)
+        
+        const float defaultDutyFactor = 0.5;    // 默认占空比
+        const float minDutyFactor = 0.4;        // 最小占空比
+        const float maxDutyFactor = 0.6;        // 最大占空比
+        
+        // Body pose parameters
+        const float maxRoll = 30.0;             // 最大横滚角 (度)
+        const float maxPitch = 30.0;            // 最大俯仰角 (度)
+        const float maxYaw = 30.0;              // 最大偏航角 (度)
+        const float maxHeightOffset = 50.0;     // 最大高度偏移 (mm)
+        
+        // Velocity parameters
+        const float maxVelocityX = 200.0;       // 最大X速度 (mm/s)
+        const float maxVelocityY = 200.0;       // 最大Y速度 (mm/s)
+        const float maxVelocityYaw = 90.0;      // 最大偏航速度 (度/s)
+#endif
     }
 
     // Speed level enumeration

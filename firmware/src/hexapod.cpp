@@ -5,14 +5,27 @@
 #include "servo.h"
 #include "debug.h"
 
+#ifdef USE_REALTIME_GAIT
+#include "standby_position.h"
+#endif
+
 namespace hexapod {
 
     HexapodClass Hexapod;
 
     HexapodClass::HexapodClass(): 
-        legs_{{0}, {1}, {2}, {3}, {4}, {5}}, 
-        movement_{MOVEMENT_STANDBY},
-        mode_{MOVEMENT_STANDBY}
+        legs_{{0}, {1}, {2}, {3}, {4}, {5}}
+#ifdef USE_PREDEFINED_GAIT
+        , movement_{MOVEMENT_STANDBY}
+        , mode_{MOVEMENT_STANDBY}
+#endif
+#ifdef USE_REALTIME_GAIT
+        , controlMode_{MODE_STAND}
+        , realtimeGait_{}
+        , poseController_{}
+        , currentPose_{}
+        , walkModePitch_{0.0}
+#endif
     {
 
     }
@@ -25,13 +38,23 @@ namespace hexapod {
         if (isReset)
             forceResetAllLegTippos();
 
+#ifdef USE_PREDEFINED_GAIT
         // default to standby mode
         if (!setting)
             processMovement(MOVEMENT_STANDBY);
+#endif
+
+#ifdef USE_REALTIME_GAIT
+        // 初始化实时步态
+        realtimeGait_.reset();
+        controlMode_ = MODE_STAND;
+        LOG_INFO("实时步态模式已初始化");
+#endif
 
         LOG_INFO("Hexapod init done.");
     }
 
+#ifdef USE_PREDEFINED_GAIT
     void HexapodClass::processMovement(MovementMode mode, int elapsed) {
         if (mode_ != mode) {
             mode_ = mode;
@@ -43,7 +66,9 @@ namespace hexapod {
             legs_[i].moveTip(location.get(i));
         }
     }
+#endif
 
+#ifdef USE_PREDEFINED_GAIT
     void HexapodClass::setMovementSpeed(float speed) {
         // 受限于舵机频率(50hz->20ms)，速度控制只能是离散的(1/n)
         movement_.setSpeed(speed);
@@ -71,6 +96,7 @@ namespace hexapod {
     float HexapodClass::getMovementSpeed() const {
         return movement_.getSpeed();
     }
+#endif
 
     void HexapodClass::calibrationSave() {
         // {"leg1": [0, 0, 0], ..., "leg6: [0, 0, 0]"}
@@ -181,5 +207,116 @@ namespace hexapod {
             }
         }
     }
+
+#ifdef USE_REALTIME_GAIT
+    // 实时步态API实现
+
+    void HexapodClass::setControlMode(ControlMode mode) {
+        if (controlMode_ != mode) {
+            controlMode_ = mode;
+            LOG_INFO("控制模式切换: %d", mode);
+            
+            if (mode == MODE_STAND) {
+                // 切换到站立模式，重置速度
+                Velocity vel;
+                realtimeGait_.setVelocity(vel);
+            }
+        }
+    }
+
+    void HexapodClass::setGaitParameters(const GaitParameters& params) {
+        realtimeGait_.setGaitParameters(params);
+    }
+
+    void HexapodClass::setVelocity(const Velocity& vel) {
+        realtimeGait_.setVelocity(vel);
+    }
+
+    void HexapodClass::setBodyPose(const BodyPose& pose) {
+        currentPose_ = pose;
+        poseController_.setBodyPose(pose);
+    }
+
+    void HexapodClass::setBodyPitch(float pitch) {
+        walkModePitch_ = pitch;
+        if (pitch < -15.0) pitch = -15.0;
+        if (pitch > 15.0) pitch = 15.0;
+    }
+
+    void HexapodClass::executeTrick(TrickAction action) {
+        LOG_INFO("执行特技动作: %d", action);
+        
+        // 特技动作实现
+        switch (action) {
+        case TRICK_A:
+            // 后半身蹲抬前手
+            // TODO: 实现具体动作
+            break;
+        case TRICK_B:
+            // 跳舞
+            // TODO: 实现具体动作
+            break;
+        case TRICK_C:
+        case TRICK_D:
+            // 预留
+            break;
+        default:
+            break;
+        }
+    }
+
+    void HexapodClass::updateRealtimeGait(int elapsed) {
+        Locations targetPositions;
+        
+        if (controlMode_ == MODE_STAND) {
+            // 站立模式：应用姿态控制
+            Locations basePositions = standby::getStandbyLocations();
+            targetPositions = poseController_.applyPoseTransform(basePositions);
+            
+        } else if (controlMode_ == MODE_WALK) {
+            // 行走模式：生成实时步态
+            targetPositions = realtimeGait_.update(elapsed);
+            
+            // 如果有pitch，应用姿态变换
+            if (walkModePitch_ != 0.0) {
+                BodyPose tempPose;
+                tempPose.pitch = walkModePitch_;
+                
+                // 保存当前姿态
+                BodyPose savedPose = currentPose_;
+                
+                // 临时设置pitch姿态
+                poseController_.setBodyPose(tempPose);
+                targetPositions = poseController_.applyPoseTransform(targetPositions);
+                
+                // 恢复原姿态
+                poseController_.setBodyPose(savedPose);
+            }
+            
+        } else if (controlMode_ == MODE_TRICK) {
+            // 特技模式：使用特定轨迹
+            // TODO: 实现特技轨迹
+            targetPositions = standby::getStandbyLocations();
+        }
+        
+        // 更新所有腿的位置
+        for (int i = 0; i < 6; i++) {
+            legs_[i].moveTip(targetPositions[i]);
+        }
+    }
+
+    const GaitParameters& HexapodClass::getGaitParameters() const {
+        return realtimeGait_.getGaitParameters();
+    }
+
+    const Velocity& HexapodClass::getVelocity() const {
+        return realtimeGait_.getVelocity();
+    }
+
+    const BodyPose& HexapodClass::getBodyPose() const {
+        return currentPose_;
+    }
+
+#endif // USE_REALTIME_GAIT
 
 }

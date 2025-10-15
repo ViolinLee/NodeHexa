@@ -1,4 +1,4 @@
-/* 六足主程序
+/* 六足主程序 - WiFi Web控制模式
  *
  * 移植自项目: [https://github.com/SmallpTsai/hexapod-v2-7697, https://github.com/ViolinLee/PiHexa18]
  * 
@@ -16,6 +16,10 @@
 _mode和mode的处理在异步的Web服务回调函数中处理
 */
 
+#include "config.h"
+
+#ifdef USE_WIFI_CONTROL
+
 #include <Arduino.h>
 #include <Wire.h>
 #include <controller_index.h>
@@ -28,7 +32,6 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 
 #include "debug.h"
 #include "hexapod.h"
-#include "config.h"
 #include "calibration.h"
 #include "PinDefines.h"
 
@@ -715,3 +718,5 @@ void testUART2Connection() {
   
   Serial.println("UART2 test completed");
 }
+
+#endif // USE_WIFI_CONTROL

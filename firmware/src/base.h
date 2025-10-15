@@ -42,7 +42,23 @@ namespace hexapod {
             points_{foreRight, right, hindRight, hindLeft, left, foreLeft} {
         }
 
+        // 只读访问（保持向后兼容）
         const Point3D& get(int index) const {
+            return points_[index];
+        }
+
+        // 新增：可修改访问
+        void set(int index, const Point3D& point) {
+            points_[index] = point;
+        }
+
+        // 新增：索引操作符（只读）
+        const Point3D& operator[](int index) const {
+            return points_[index];
+        }
+
+        // 新增：索引操作符（可修改）
+        Point3D& operator[](int index) {
             return points_[index];
         }
 
