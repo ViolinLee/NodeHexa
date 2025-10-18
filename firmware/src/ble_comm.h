@@ -74,6 +74,9 @@ namespace hexapod {
         // 检查连接状态
         bool isConnected() const;
         
+        // 获取当前MTU大小
+        uint16_t getMTU() const;
+        
         // 处理接收到的数据
         void process();
         
@@ -87,6 +90,7 @@ namespace hexapod {
         BLECharacteristic* pRxCharacteristic_;
         bool deviceConnected_;
         bool oldDeviceConnected_;
+        uint16_t mtu_;  // 当前MTU大小
         
         // 处理接收到的JSON命令
         void handleCommand(const String& jsonString);

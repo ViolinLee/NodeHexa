@@ -27,6 +27,12 @@ namespace hexapod {
             LOG_INFO("BLE客户端已断开");
         }
         
+        void onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
+            comm_->mtu_ = param->mtu.mtu;
+            LOG_INFO("BLE MTU协商完成: %d 字节 (数据: %d 字节)", 
+                     comm_->mtu_, comm_->mtu_ - 3);
+        }
+        
     private:
         BLEComm* comm_;
     };
@@ -37,10 +43,9 @@ namespace hexapod {
         NodeHexaBLECharacteristicCallbacks(BLEComm* comm): comm_(comm) {}
         
         void onWrite(BLECharacteristic *pCharacteristic) {
-            std::string value = pCharacteristic->getValue();
+            String value = pCharacteristic->getValue();
             if (value.length() > 0) {
-                String jsonString = String(value.c_str());
-                comm_->handleCommand(jsonString);
+                comm_->handleCommand(value);
             }
         }
         
@@ -57,13 +62,17 @@ namespace hexapod {
         pTxCharacteristic_(nullptr),
         pRxCharacteristic_(nullptr),
         deviceConnected_(false),
-        oldDeviceConnected_(false)
+        oldDeviceConnected_(false),
+        mtu_(23)  // 默认BLE MTU大小
     {
     }
 
     void BLEComm::init(const char* deviceName) {
         // 创建BLE设备
         BLEDevice::init(deviceName);
+        
+        // 设置MTU大小 (ESP32最大支持512字节)
+        BLEDevice::setMTU(517);  // 设置为517，实际协商值通常会是512
         
         // 创建BLE服务器
         pServer_ = BLEDevice::createServer();
@@ -205,6 +214,10 @@ namespace hexapod {
         return deviceConnected_;
     }
 
+    uint16_t BLEComm::getMTU() const {
+        return mtu_;
+    }
+
     void BLEComm::process() {
         // 处理连接状态变化
         if (!deviceConnected_ && oldDeviceConnected_) {
@@ -331,10 +344,41 @@ namespace hexapod {
     void BLEComm::sendJson(const String& jsonString) {
         if (!deviceConnected_ || !pTxCharacteristic_) return;
         
-        pTxCharacteristic_->setValue(jsonString.c_str());
-        pTxCharacteristic_->notify();
+        const char* data = jsonString.c_str();
+        size_t dataSize = jsonString.length();
+        size_t maxPayload = mtu_ - 3;  // MTU减去3字节ATT协议头
         
-        LOG_DEBUG("BLE发送: %s", jsonString.c_str());
+        // 方案1：数据在MTU限制内，直接发送（最优，99%情况）
+        if (dataSize <= maxPayload) {
+            pTxCharacteristic_->setValue(data);
+            pTxCharacteristic_->notify();
+            LOG_DEBUG("BLE发送: %d字节 (MTU:%d) - 单包发送", dataSize, mtu_);
+            return;
+        }
+        
+        // 方案2：数据超过MTU，分片发送（降级方案，1%情况）
+        LOG_INFO("BLE分片: 数据 %d 字节 > MTU %d 字节，启用分片传输", 
+                 dataSize, maxPayload);
+        
+        size_t offset = 0;
+        int chunkNum = 1;
+        
+        while (offset < dataSize) {
+            size_t remaining = dataSize - offset;
+            size_t chunkSize = (remaining > maxPayload) ? maxPayload : remaining;
+            
+            pTxCharacteristic_->setValue((uint8_t*)(data + offset), chunkSize);
+            pTxCharacteristic_->notify();
+            
+            LOG_DEBUG("  片段%d: %d字节", chunkNum++, chunkSize);
+            offset += chunkSize;
+            
+            if (offset < dataSize) {
+                delay(5);  // 片段间延迟，确保接收
+            }
+        }
+        
+        LOG_DEBUG("BLE分片完成: 共%d片", chunkNum - 1);
     }
 
 } // namespace hexapod
