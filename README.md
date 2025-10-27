@@ -93,7 +93,7 @@ firmware/
 
 ## 🛒 购买链接
 - **套件购买**: [NodeHexa 六足机器人套件](https://item.taobao.com/item.htm?ft=t&id=810056770425)
-- **小智拓展板**: 烦请耐心等待，即将上线！
+- **语音拓展板购买**: [NodeHexa 小智AI拓展板](https://item.taobao.com/item.htm?id=989885356650)
 
 ### 🎁 购买福利
 购买套件的用户可获得完整的**STEP三维模型文件**，便于二次开发和定制改造。
