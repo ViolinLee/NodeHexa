@@ -6,9 +6,8 @@
       text-align: center;
       position: relative;
     }
-    .lang-switch {
+    .lang-switch, .settings-btn {
       position: absolute;
-      right: 20px;
       top: 50%;
       transform: translateY(-50%);
       background-color: #1E90FF;
@@ -21,10 +20,16 @@
       box-shadow: 0 4px #999;
       transition: all 0.3s;
     }
-    .lang-switch:hover {
+    .lang-switch {
+      right: 20px;
+    }
+    .settings-btn {
+      left: 20px;
+    }
+    .lang-switch:hover, .settings-btn:hover {
       background-color: #0b7dda;
     }
-    .lang-switch:active {
+    .lang-switch:active, .settings-btn:active {
       box-shadow: 0 2px #666;
       transform: translateY(-48%);
     }
@@ -196,11 +201,162 @@
       width: 20px;
       height: 20px;
     }
+
+    /* 模态框样式 */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    .modal-content {
+      background-color: #fefefe;
+      margin: 5% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      border-radius: 15px;
+      width: 90%;
+      max-width: 500px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #1E90FF;
+    }
+    .modal-title {
+      font-size: 20px;
+      font-weight: bold;
+      color: #333;
+    }
+    .close {
+      color: #aaa;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+      line-height: 20px;
+    }
+    .close:hover {
+      color: #000;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #333;
+    }
+    .form-input {
+      width: 100%;
+      padding: 10px;
+      border: 2px solid #ddd;
+      border-radius: 5px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #1E90FF;
+    }
+    .form-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .btn-primary {
+      flex: 1;
+      padding: 10px;
+      background-color: #1E90FF;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .btn-primary:hover {
+      background-color: #0b7dda;
+    }
+    .btn-secondary {
+      flex: 1;
+      padding: 10px;
+      background-color: #666;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .btn-secondary:hover {
+      background-color: #555;
+    }
+    .btn-danger {
+      padding: 10px;
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 10px;
+      width: 100%;
+    }
+    .btn-danger:hover {
+      background-color: #c82333;
+    }
+    .info-box {
+      background-color: #e7f3ff;
+      border-left: 4px solid #1E90FF;
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    .wifi-qr {
+      text-align: center;
+      margin: 15px 0;
+      padding: 10px;
+      background-color: #f5f5f5;
+      border-radius: 5px;
+    }
+    .wifi-qr-text {
+      font-family: monospace;
+      font-size: 12px;
+      word-break: break-all;
+      margin-top: 10px;
+    }
+    .status-message {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 14px;
+      display: none;
+    }
+    .status-success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status-error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
   </style>
 </head>
 <body>
   <h1 class="title">
     <span id="pageTitle">机器人控制</span>
+    <button class="settings-btn" onclick="openSettings()" data-zh="⚙️ 设置" data-en="⚙️ Settings">⚙️ 设置</button>
     <button class="lang-switch" onclick="toggleLanguage()">English</button>
   </h1>
 
@@ -240,12 +396,56 @@
     <button class="button button-move grid-item-3" onclick="sendCommand(3)" data-zh="后退" data-en="Backward">后退</button>
   </div>
 
+  <!-- AP配置模态框 -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="modalTitle">WiFi AP 配置</span>
+        <span class="close" onclick="closeSettings()">&times;</span>
+      </div>
+      <div id="settingsForm">
+        <div class="form-group">
+          <label class="form-label" id="labelSSID">AP 名称 (SSID)</label>
+          <input type="text" id="apSSID" class="form-input" placeholder="NodeHexa-XXXX" maxlength="31">
+        </div>
+        <div class="form-group">
+          <label class="form-label" id="labelPassword">密码 (8-63字符，留空为开放网络)</label>
+          <input type="password" id="apPassword" class="form-input" placeholder="留空为开放网络" maxlength="63">
+        </div>
+        <div class="info-box" id="currentInfo">
+          <strong>当前配置：</strong><br>
+          <span id="currentSSID">加载中...</span>
+        </div>
+        <div class="form-actions">
+          <button class="btn-primary" onclick="saveAPConfig()" id="btnSave">保存</button>
+          <button class="btn-secondary" onclick="closeSettings()" id="btnCancel">取消</button>
+        </div>
+        <button class="btn-danger" onclick="resetAPConfig()" id="btnReset">恢复默认配置</button>
+        <div class="status-message" id="statusMessage"></div>
+      </div>
+      <div id="pendingInfo" style="display: none;">
+        <div class="info-box">
+          <strong>配置已更新！</strong><br>
+          <p id="pendingMessage">设备将在3秒后重启，请连接到新的AP：</p>
+          <div class="wifi-qr">
+            <div><strong id="newSSID">-</strong></div>
+            <div id="newPassword" style="margin-top: 5px;"></div>
+            <div class="wifi-qr-text" id="wifiQRText"></div>
+          </div>
+          <p style="font-size: 12px; color: #666; margin-top: 10px;">
+            连接后访问 http://192.168.4.1 完成确认
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 页脚署名 -->
   <footer class="footer">
     <div class="footer-content">
       <div class="footer-title" id="footerTitle">开源项目 · NodeHexa 六足机器人</div>
       <div class="footer-links">
-        <a href="https://space.bilibili.com/智造师_RoboticsCV" target="_blank" class="footer-link" title="B站主页">
+        <a href="https://space.bilibili.com/85652131" target="_blank" class="footer-link" title="B站主页">
           <svg class="footer-icon" viewBox="0 0 24 24" fill="currentColor">
             <path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.765 1.56-3.76 1.004-.996 2.262-1.52 3.773-1.574h.774l-1.174-1.12a1.234 1.234 0 0 1-.373-.906c0-.356.124-.658.373-.907l.027-.027c.267-.249.573-.373.92-.373.347 0 .653.124.92.373L9.653 4.44c.071.071.134.142.187.213h4.267a.836.836 0 0 1 .16-.213l2.853-2.747c.267-.249.573-.373.92-.373.347 0 .662.151.929.4.267.249.391.551.391.907 0 .355-.124.657-.373.906zM5.333 7.24c-.746.018-1.373.276-1.88.773-.506.498-.769 1.13-.786 1.894v7.52c.017.764.28 1.395.786 1.893.507.498 1.134.756 1.88.773h13.334c.746-.017 1.373-.275 1.88-.773.506-.498.769-1.129.786-1.893v-7.52c-.017-.765-.28-1.396-.786-1.894-.507-.497-1.134-.755-1.88-.773zM8 11.107c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c0-.373.129-.689.386-.947.258-.257.574-.386.947-.386zm8 0c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c.017-.391.15-.711.4-.96.249-.249.56-.373.933-.373Z"/>
           </svg>
@@ -340,7 +540,17 @@
       footerTitle: { zh: '开源项目 · NodeHexa 六足机器人', en: 'Open Source · NodeHexa Hexapod Robot' },
       bilibiliText: { zh: 'B站: 智造师_RoboticsCV', en: 'Bilibili: 智造师_RoboticsCV' },
       githubText: { zh: 'GitHub: ViolinLee', en: 'GitHub: ViolinLee' },
-      wechatText: { zh: '公众号: RoboticsCV', en: 'WeChat: RoboticsCV' }
+      wechatText: { zh: '公众号: RoboticsCV', en: 'WeChat: RoboticsCV' },
+      settingsBtn: { zh: '⚙️ 设置', en: '⚙️ Settings' },
+      modalTitle: { zh: 'WiFi AP 配置', en: 'WiFi AP Settings' },
+      labelSSID: { zh: 'AP 名称 (SSID)', en: 'AP Name (SSID)' },
+      labelPassword: { zh: '密码 (8-63字符，留空为开放网络)', en: 'Password (8-63 chars, empty for open network)' },
+      btnSave: { zh: '保存', en: 'Save' },
+      btnCancel: { zh: '取消', en: 'Cancel' },
+      btnReset: { zh: '恢复默认配置', en: 'Reset to Default' },
+      currentConfig: { zh: '当前配置：', en: 'Current Config: ' },
+      pendingMsg: { zh: '设备将在3秒后重启，请连接到新的AP：', en: 'Device will reboot in 3 seconds, please connect to new AP:' },
+      pendingHint: { zh: '连接后访问 http://192.168.4.1 完成确认', en: 'Visit http://192.168.4.1 after connecting to confirm' }
     };
 
     function toggleLanguage() {
@@ -367,19 +577,209 @@
         button.textContent = button.getAttribute('data-' + currentLang);
       });
       
+      // 更新设置按钮文本
+      const settingsBtn = document.querySelector('.settings-btn');
+      if (settingsBtn) {
+        settingsBtn.textContent = langTexts.settingsBtn[currentLang];
+      }
+      
       // 更新页脚文本
       document.getElementById('footerTitle').textContent = langTexts.footerTitle[currentLang];
       document.getElementById('bilibiliText').textContent = langTexts.bilibiliText[currentLang];
       document.getElementById('githubText').textContent = langTexts.githubText[currentLang];
       document.getElementById('wechatText').textContent = langTexts.wechatText[currentLang];
       
+      // 更新模态框文本
+      updateModalTexts();
+      
       console.log('Language switched to: ' + (currentLang === 'zh' ? '中文' : 'English'));
+    }
+
+    function updateModalTexts() {
+      document.getElementById('modalTitle').textContent = langTexts.modalTitle[currentLang];
+      document.getElementById('labelSSID').textContent = langTexts.labelSSID[currentLang];
+      document.getElementById('labelPassword').textContent = langTexts.labelPassword[currentLang];
+      document.getElementById('btnSave').textContent = langTexts.btnSave[currentLang];
+      document.getElementById('btnCancel').textContent = langTexts.btnCancel[currentLang];
+      document.getElementById('btnReset').textContent = langTexts.btnReset[currentLang];
+      const currentInfo = document.getElementById('currentInfo');
+      if (currentInfo) {
+        currentInfo.innerHTML = '<strong>' + langTexts.currentConfig[currentLang] + '</strong><br><span id="currentSSID">加载中...</span>';
+      }
+    }
+
+    // AP 配置功能
+    function openSettings() {
+      document.getElementById('settingsModal').style.display = 'block';
+      loadAPConfig();
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsModal').style.display = 'none';
+      document.getElementById('settingsForm').style.display = 'block';
+      document.getElementById('pendingInfo').style.display = 'none';
+      document.getElementById('statusMessage').style.display = 'none';
+    }
+
+    function loadAPConfig() {
+      fetch('/api/ap-config?includePassword=true')
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'success') {
+            if (data.pending) {
+              // 显示待确认信息
+              document.getElementById('settingsForm').style.display = 'none';
+              document.getElementById('pendingInfo').style.display = 'block';
+              document.getElementById('newSSID').textContent = data.nextSSID || data.ssid;
+              if (data.nextPassword) {
+                document.getElementById('newPassword').textContent = '密码: ' + data.nextPassword;
+                document.getElementById('wifiQRText').textContent = 'WIFI:T:WPA;S:' + data.nextSSID + ';P:' + data.nextPassword + ';;';
+              } else {
+                document.getElementById('newPassword').textContent = '开放网络（无密码）';
+                document.getElementById('wifiQRText').textContent = 'WIFI:T:nopass;S:' + data.nextSSID + ';;';
+              }
+              document.getElementById('pendingMessage').textContent = langTexts.pendingMsg[currentLang];
+              document.querySelector('#pendingInfo p[style]').textContent = langTexts.pendingHint[currentLang];
+            } else {
+              // 显示当前配置
+              document.getElementById('apSSID').value = data.ssid || '';
+              document.getElementById('apPassword').value = data.password || '';
+              document.getElementById('currentSSID').textContent = data.ssid + (data.password ? ' (已设置密码)' : ' (开放网络)');
+            }
+          }
+        })
+        .catch(error => {
+          console.error('加载配置失败:', error);
+          showStatus('加载配置失败: ' + error.message, 'error');
+        });
+    }
+
+    function saveAPConfig() {
+      const ssid = document.getElementById('apSSID').value.trim();
+      const password = document.getElementById('apPassword').value;
+
+      if (!ssid) {
+        showStatus('请输入AP名称', 'error');
+        return;
+      }
+
+      if (ssid.length > 31) {
+        showStatus('AP名称不能超过31个字符', 'error');
+        return;
+      }
+
+      if (password && password.length > 0 && password.length < 8) {
+        showStatus('密码至少需要8个字符', 'error');
+        return;
+      }
+
+      const config = {
+        ssid: ssid,
+        password: password
+      };
+
+      fetch('/api/ap-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(config)
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'success') {
+            // 显示待确认信息
+            document.getElementById('settingsForm').style.display = 'none';
+            document.getElementById('pendingInfo').style.display = 'block';
+            document.getElementById('newSSID').textContent = data.nextSSID;
+            if (data.nextPassword) {
+              document.getElementById('newPassword').textContent = '密码: ' + data.nextPassword;
+              document.getElementById('wifiQRText').textContent = 'WIFI:T:WPA;S:' + data.nextSSID + ';P:' + data.nextPassword + ';;';
+            } else {
+              document.getElementById('newPassword').textContent = '开放网络（无密码）';
+              document.getElementById('wifiQRText').textContent = 'WIFI:T:nopass;S:' + data.nextSSID + ';;';
+            }
+            document.getElementById('pendingMessage').textContent = langTexts.pendingMsg[currentLang];
+            document.querySelector('#pendingInfo p[style]').textContent = langTexts.pendingHint[currentLang];
+          } else {
+            showStatus('保存失败: ' + (data.message || '未知错误'), 'error');
+          }
+        })
+        .catch(error => {
+          console.error('保存配置失败:', error);
+          showStatus('保存配置失败: ' + error.message, 'error');
+        });
+    }
+
+    function resetAPConfig() {
+      if (!confirm(currentLang === 'zh' ? '确定要恢复默认配置吗？设备将重启。' : 'Reset to default? Device will reboot.')) {
+        return;
+      }
+
+      // 为避免设备重启导致请求挂起，增加超时控制；超时或网络错误均视为已下发重启指令
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+      // 使用 GET 提交复位请求，后端同时支持 GET/POST
+      fetch('/api/ap-config/reset', { signal: controller.signal })
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'success') {
+            showStatus(currentLang === 'zh' ? '已恢复默认配置，设备将重启' : 'Reset to default, device will reboot', 'success');
+            setTimeout(() => {
+              closeSettings();
+            }, 2000);
+          } else {
+            showStatus('重置失败: ' + (data.message || '未知错误'), 'error');
+          }
+        })
+        .catch(error => {
+          // 将网络失败/超时视为设备正在重启，给出正向提示，避免“Failed to fetch”误导
+          showStatus(currentLang === 'zh' ? '已恢复默认配置，设备将重启' : 'Reset to default, device will reboot', 'success');
+          setTimeout(() => {
+            closeSettings();
+          }, 2000);
+        })
+        .finally(() => {
+          clearTimeout(timeoutId);
+        });
+    }
+
+    function showStatus(message, type) {
+      const statusEl = document.getElementById('statusMessage');
+      statusEl.textContent = message;
+      statusEl.className = 'status-message status-' + type;
+      statusEl.style.display = 'block';
+      setTimeout(() => {
+        statusEl.style.display = 'none';
+      }, 5000);
+    }
+
+    // 点击模态框外部关闭
+    window.onclick = function(event) {
+      const modal = document.getElementById('settingsModal');
+      if (event.target === modal) {
+        closeSettings();
+      }
     }
 
     window.onload = function() {
       initRobotInputWebSocket();
       initSpeedControl();
       // 默认显示中文，无需调用toggleLanguage
+      updateModalTexts();
+      
+      // 检查是否有待确认的配置
+      fetch('/api/ap-config')
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'success' && data.pending) {
+            // 自动确认 pending 配置（用户已在新 AP 下访问页面）
+            fetch('/api/ap-config/confirm', { method: 'POST' })
+              .then(() => console.log('AP配置已确认'));
+          }
+        })
+        .catch(error => console.error('检查配置状态失败:', error));
     };
   </script>
 </body>

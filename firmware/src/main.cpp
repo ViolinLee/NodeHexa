@@ -31,19 +31,19 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "config.h"
 #include "calibration.h"
 #include "PinDefines.h"
+#include "ap_config.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
 #define CALIBRATESTART "CALIBRATESTART"
 #define CALIBRATESAVE "CALIBRATESAVE"
+#define CALIBRATESTART_EXISTING "CALIBRATESTART_EXISTING"
 
 // 调试模式控制
 // #define DEBUG_ADC_MONITOR  // 注释此行可关闭电池电压ADC调试输出
 // #define DEBUG_FRAME_RECEIVE  // 启用帧接收调试输出
 
 // 常量定义
-const char* ssid = "NodeHexa";
-const char* password = "roboticscv666";
 
 // 串口配置
 #define UART2_BAUD_RATE 115200
@@ -76,6 +76,7 @@ AsyncWebSocket wsRoverCmd("/cmd");
 void handleRoot(AsyncWebServerRequest *request);
 void handleCalibrationPage(AsyncWebServerRequest *request);
 void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+void handleCalibrationGet(AsyncWebServerRequest *request);
 void handleNotFound(AsyncWebServerRequest *request);
 void onRobotCmdWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 void normal_loop();
@@ -83,6 +84,12 @@ void setting_loop();
 static void log_output(const char* log);
 CalibrationData parseCalibrationData(const String& jsonString);
 void printWelcomeMessage();
+
+// AP 配置接口声明
+void handleApConfigGet(AsyncWebServerRequest *request);
+void handleApConfigPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+void handleApConfigConfirm(AsyncWebServerRequest *request);
+void handleApConfigReset(AsyncWebServerRequest *request);
 
 void BatteryMonitorTask(void *pvParameters);
 void LEDControllerTask(void *pvParameters);
@@ -119,10 +126,9 @@ void setup() {
       return;
   }
 
-  // 初始化WiFi
-  WiFi.softAP(ssid, password);
-  Serial.print("NodeHexa Ready! AP IP address: ");
-  Serial.println(WiFi.softAPIP());
+  // 初始化WiFi（动态 AP 配置）
+  apconfig::init();
+  apconfig::printCurrentAPInfo(Serial);
 
   // 初始化Web服务
   server.on("/", HTTP_GET, handleRoot);
@@ -137,7 +143,17 @@ void setup() {
       //Serial.println("2");
     },
     handleCalibrationData);
+  server.on("/api/calibration", HTTP_GET, handleCalibrationGet);
   server.onNotFound(handleNotFound);
+
+  // AP 配置接口（先注册更具体的路径，再注册通用路径，避免潜在前缀匹配冲突）
+  server.on("/api/ap-config/confirm", HTTP_POST, handleApConfigConfirm);
+  server.on("/api/ap-config/reset", HTTP_GET, handleApConfigReset);
+  server.on("/api/ap-config", HTTP_GET, handleApConfigGet);
+  server.on("/api/ap-config", HTTP_POST,
+    [](AsyncWebServerRequest *request) {},
+    [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {},
+    handleApConfigPostBody);
 
   wsRoverCmd.onEvent(onRobotCmdWebSocketEvent);
   server.addHandler(&wsRoverCmd);
@@ -243,6 +259,7 @@ void setting_loop() {
 /* HandleRoot
 */
 void handleRoot(AsyncWebServerRequest *request) {
+    apconfig::autoConfirmIfPending();
     AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", web_controller_html_gz, web_controller_html_gz_len);
     response->addHeader("Content-Encoding","gzip");
     request->send(response);
@@ -251,6 +268,7 @@ void handleRoot(AsyncWebServerRequest *request) {
 /* HandleCalibrationPage
 */
 void handleCalibrationPage(AsyncWebServerRequest *request) {
+  apconfig::autoConfirmIfPending();
   AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", calibration_html_gz, calibration_html_gz_len);
   response->addHeader("Content-Encoding", "gzip");
   request->send(response);
@@ -267,6 +285,13 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
       _mode = 1;
       LOG_INFO("Enter Calibration Mode.");
       hexapod::Hexapod.clearOffset();
+      hexapod::Hexapod.calibrationTestAllLeg(test_angle);
+
+      request->send(200, "application/json", "{\"status\":\"success\"}");
+    } else if ((calibrationData.operation == CALIBRATESTART_EXISTING) && (_mode == 0)) {
+      // 进入校准模式，但不清零现有偏移；舵机转到90°+offset
+      _mode = 1;
+      LOG_INFO("Enter Calibration Mode (use existing offsets).");
       hexapod::Hexapod.calibrationTestAllLeg(test_angle);
 
       request->send(200, "application/json", "{\"status\":\"success\"}");
@@ -289,6 +314,27 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
   }
 }
 
+/* 查询当前校准状态与偏移 */
+void handleCalibrationGet(AsyncWebServerRequest *request) {
+  StaticJsonDocument<1024> doc;
+
+  bool exists = SPIFFS.exists("/calibration.json");
+  doc["exists"] = exists;
+
+  JsonArray offsets = doc.createNestedArray("offsets");
+  for (int i = 0; i < 6; i++) {
+    JsonArray leg = offsets.createNestedArray();
+    for (int j = 0; j < 3; j++) {
+      int offset = 0;
+      hexapod::Hexapod.calibrationGet(i, j, offset);
+      leg.add(offset);
+    }
+  }
+
+  String responseStr;
+  serializeJson(doc, responseStr);
+  request->send(200, "application/json", responseStr);
+}
 
 
 
@@ -296,6 +342,130 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
 */
 void handleNotFound(AsyncWebServerRequest *request) {
     request->send_P(404, "text/plain", "File Not Found");
+}
+
+/* AP 配置接口处理
+*/
+void handleApConfigGet(AsyncWebServerRequest *request) {
+  apconfig::APConfig cfg = apconfig::getConfig();
+  
+  // 检查是否包含密码参数（仅用于调试）
+  bool includePassword = false;
+  if (request->hasParam("includePassword")) {
+    includePassword = request->getParam("includePassword")->value() == "true";
+  }
+  
+  StaticJsonDocument<256> json;
+  json["status"] = "success";
+  json["ssid"] = cfg.ssid;
+  json["pending"] = cfg.pending;
+  
+  if (cfg.pending) {
+    // 如果处于 pending 状态，返回待确认的配置（即当前配置）
+    json["nextSSID"] = cfg.ssid;
+    if (includePassword) {
+      json["nextPassword"] = cfg.password;
+    }
+    json["currentSSID"] = cfg.prevSsid;
+  } else {
+    // 正常状态，返回当前配置
+    if (includePassword) {
+      json["password"] = cfg.password;
+    }
+  }
+  
+  String response;
+  serializeJson(json, response);
+  request->send(200, "application/json", response);
+}
+
+void handleApConfigPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+  String body = String((char*)data).substring(0, len);
+  
+  StaticJsonDocument<256> doc;
+  DeserializationError error = deserializeJson(doc, body);
+  
+  if (error) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+    Serial.printf("AP Config: JSON parse error: %s\n", error.c_str());
+    return;
+  }
+  
+  if (!doc.containsKey("ssid")) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing ssid field\"}");
+    return;
+  }
+  
+  String ssid = doc["ssid"].as<String>();
+  String password = doc.containsKey("password") ? doc["password"].as<String>() : "";
+  
+  // 验证 SSID 长度（ESP32 限制）
+  if (ssid.length() == 0 || ssid.length() > 31) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"SSID length must be 1-31 characters\"}");
+    return;
+  }
+  
+  // 验证密码长度（WPA2 要求 8-63 字符，空密码表示开放网络）
+  if (password.length() > 0 && password.length() < 8) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Password must be at least 8 characters or empty for open network\"}");
+    return;
+  }
+  
+  // 设置新配置
+  bool success = apconfig::setNewConfig(ssid, password);
+  
+  if (success) {
+    StaticJsonDocument<256> response;
+    response["status"] = "success";
+    response["message"] = "AP configuration updated, device will reboot in 3 seconds";
+    response["pending"] = true;
+    response["nextSSID"] = ssid;
+    response["nextPassword"] = password;
+    
+    String responseStr;
+    serializeJson(response, responseStr);
+    request->send(200, "application/json", responseStr);
+    
+    Serial.printf("AP Config: New configuration set - SSID: %s, will reboot...\n", ssid.c_str());
+    
+    // 延迟重启，让 HTTP 响应先发送
+    apconfig::requestReboot(3000);
+  } else {
+    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to set configuration\"}");
+  }
+}
+
+void handleApConfigConfirm(AsyncWebServerRequest *request) {
+  Serial.println("AP Config: Confirm endpoint hit");
+  apconfig::confirm();
+  
+  StaticJsonDocument<128> response;
+  response["status"] = "success";
+  response["message"] = "AP configuration confirmed";
+  
+  String responseStr;
+  serializeJson(response, responseStr);
+  request->send(200, "application/json", responseStr);
+  
+  Serial.println("AP Config: Configuration confirmed by user");
+}
+
+void handleApConfigReset(AsyncWebServerRequest *request) {
+  apconfig::resetToDefault();
+  
+  StaticJsonDocument<128> response;
+  response["status"] = "success";
+  response["message"] = "AP configuration reset to default, device will reboot";
+  
+  String responseStr;
+  serializeJson(response, responseStr);
+  request->send(200, "application/json", responseStr);
+  
+  Serial.println("AP Config: Reset to default configuration");
+
+  // 延迟重启，确保HTTP响应发出
+  apconfig::requestReboot(3000);
+  Serial.println("AP Config: Reboot scheduled in 3000 ms");
 }
 
 /* 机器人指令回调处理
