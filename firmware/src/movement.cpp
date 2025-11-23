@@ -36,6 +36,13 @@ namespace hexapod {
         twistTable(),
     };
 
+    const MovementTable& getMovementTable(MovementMode mode) {
+        if (mode < 0 || mode >= MOVEMENT_TOTAL) {
+            return kTable[MOVEMENT_STANDBY];
+        }
+        return kTable[mode];
+    }
+
     Movement::Movement(MovementMode mode):
         mode_{mode}, transiting_{false}, speed_{config::defaultSpeed}
     {

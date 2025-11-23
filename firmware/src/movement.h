@@ -37,6 +37,8 @@ namespace hexapod {
         int entriesCount;
     };
 
+    const MovementTable& getMovementTable(MovementMode mode);
+
     class Movement {
     public:
         Movement(MovementMode mode);

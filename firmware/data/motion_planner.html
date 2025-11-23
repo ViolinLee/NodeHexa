@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运动规划 · NodeHexa</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", sans-serif;
+      background: #f2f6ff;
+      color: #222;
+    }
+    .app {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 20px 16px 60px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 28px;
+    }
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .primary-btn {
+      background: #1E90FF;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(30,144,255,0.35);
+    }
+    .primary-btn:hover {
+      background: #0b7dda;
+    }
+    .ghost-btn {
+      background: #fff;
+      color: #1E90FF;
+      border: 1px solid #1E90FF;
+    }
+    .danger-btn {
+      background: #dc3545;
+      color: #fff;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 20px rgba(44,62,80,0.08);
+    }
+    .card h2 {
+      margin-top: 0;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .form-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .form-row label {
+      font-size: 13px;
+      color: #555;
+      font-weight: 600;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .form-control {
+      flex: 1;
+      min-width: 140px;
+    }
+    select, input[type="number"], input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid #ccd7e5;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    select:focus, input:focus {
+      outline: none;
+      border-color: #1E90FF;
+      box-shadow: 0 0 0 2px rgba(30,144,255,0.15);
+    }
+    .sequence-list {
+      border: 1px solid #e1e7f5;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .sequence-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr auto;
+      align-items: center;
+      padding: 10px 12px;
+      font-size: 14px;
+      border-bottom: 1px solid #edf1fb;
+    }
+    .sequence-row:last-child {
+      border-bottom: none;
+    }
+    .sequence-row span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(30,144,255,0.12);
+      color: #1E90FF;
+    }
+    .status-log {
+      font-size: 13px;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 12px;
+      border-radius: 10px;
+      height: 160px;
+      overflow-y: auto;
+      font-family: "JetBrains Mono", monospace;
+    }
+    .lang-switch {
+      margin-left: auto;
+    }
+    .hint {
+      font-size: 12px;
+      color: #777;
+      margin-top: -6px;
+      margin-bottom: 12px;
+    }
+    @media (max-width: 640px) {
+      .sequence-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <button class="ghost-btn" onclick="goBack()" data-zh="⬅️ 返回控制台" data-en="⬅️ Back to Controller">⬅️ 返回控制台</button>
+      <h1 id="pageTitle">运动规划</h1>
+      <button class="ghost-btn lang-switch" onclick="toggleLanguage()">English</button>
+    </header>
+
+    <div class="card">
+      <h2 id="singleActionTitle">单次动作</h2>
+      <div class="hint" id="singleActionHint">执行一段限定步数/角度/时间的动作</div>
+      <div class="form-row">
+        <div class="form-control">
+          <label id="labelMovement">动作类型</label>
+          <select id="movementSelect"></select>
+        </div>
+        <div class="form-control">
+          <label id="labelUnit">限定方式</label>
+          <select id="unitSelect"></select>
+        </div>
+        <div class="form-control">
+          <label id="labelValue">数值</label>
+          <input type="number" id="valueInput" min="0.01" step="0.01" value="1">
+        </div>
+        <div class="form-control">
+          <label id="labelSpeed">速度覆盖 (可选)</label>
+          <input type="number" id="speedInput" min="0.25" max="1.0" step="0.01" placeholder="0.25 ~ 1.0">
+        </div>
+      </div>
+      <div class="form-row">
+        <button class="primary-btn" onclick="sendSingleAction()" id="btnExecuteSingle">执行动作</button>
+        <button class="ghost-btn" onclick="addActionToSequence()" id="btnAddSequence">添加到序列</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="sequenceTitle">动作序列</h2>
+      <div class="hint" id="sequenceHint">最多添加 5 个动作，可一次性下发给六足机器人</div>
+      <div id="sequenceList" class="sequence-list"></div>
+      <div class="form-row">
+        <div class="form-control">
+          <label id="labelSequenceId">序列编号 (可选)</label>
+          <input type="text" id="sequenceIdInput" placeholder="留空自动生成">
+        </div>
+        <div class="form-control">
+          <label id="labelAppend">追加模式</label>
+          <select id="appendSelect">
+            <option value="false" selected>覆盖现有队列</option>
+            <option value="true">追加到队列末尾</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <button class="primary-btn" onclick="sendSequence()" id="btnSendSequence">发送序列</button>
+        <button class="ghost-btn" onclick="clearSequence()" id="btnClearSequence">清空序列</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="queueTitle">队列控制</h2>
+      <div class="form-row">
+        <button class="danger-btn" onclick="sendStop()" id="btnStop">紧急停止</button>
+        <button class="ghost-btn" onclick="clearQueue()" id="btnClearQueue">清空动作队列</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="logTitle">状态日志</h2>
+      <div class="status-log" id="statusLog"></div>
+    </div>
+  </div>
+
+  <script>
+    var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd";
+    let websocketCarInput;
+    let currentLang = 'zh';
+    const MAX_SEQUENCE_ACTIONS = 5;
+    let sequenceActions = [];
+
+    const movementOptions = [
+      { key: 'forward', zh: '前进', en: 'Forward' },
+      { key: 'forwardfast', zh: '快跑', en: 'Forward Fast' },
+      { key: 'backward', zh: '后退', en: 'Backward' },
+      { key: 'turnleft', zh: '左转', en: 'Turn Left' },
+      { key: 'turnright', zh: '右转', en: 'Turn Right' },
+      { key: 'shiftleft', zh: '左移', en: 'Shift Left' },
+      { key: 'shiftright', zh: '右移', en: 'Shift Right' },
+      { key: 'climb', zh: '爬行', en: 'Climb' },
+      { key: 'rotatex', zh: '旋转X', en: 'Rotate X' },
+      { key: 'rotatey', zh: '旋转Y', en: 'Rotate Y' },
+      { key: 'rotatez', zh: '旋转Z', en: 'Rotate Z' },
+      { key: 'twist', zh: '扭腰', en: 'Twist' },
+      { key: 'standby', zh: '待机', en: 'Standby' }
+    ];
+
+    const unitOptions = [
+      { key: 'cycles', zh: '周期', en: 'Cycles' },
+      { key: 'steps', zh: '步数', en: 'Steps' },
+      { key: 'distance', zh: '距离 (米)', en: 'Distance (m)' },
+      { key: 'angle', zh: '角度 (°)', en: 'Angle (°)' },
+      { key: 'durationMs', zh: '时长 (ms)', en: 'Duration (ms)' }
+    ];
+
+    const langTexts = {
+      pageTitle: { zh: '运动规划', en: 'Motion Planner' },
+      singleActionTitle: { zh: '单次动作', en: 'Single Action' },
+      singleActionHint: { zh: '执行一段限定步数/角度/时间的动作', en: 'Run a single constrained action' },
+      sequenceTitle: { zh: '动作序列', en: 'Action Sequence' },
+      sequenceHint: { zh: '最多 5 个动作，可一次性下发', en: 'Up to 5 actions per batch' },
+      queueTitle: { zh: '队列控制', en: 'Queue Control' },
+      logTitle: { zh: '状态日志', en: 'Status Log' },
+      labelMovement: { zh: '动作类型', en: 'Movement' },
+      labelUnit: { zh: '限定方式', en: 'Constraint' },
+      labelValue: { zh: '数值', en: 'Value' },
+      labelSpeed: { zh: '速度覆盖 (可选)', en: 'Speed override (optional)' },
+      labelSequenceId: { zh: '序列编号 (可选)', en: 'Sequence ID (optional)' },
+      labelAppend: { zh: '执行策略', en: 'Execution strategy' },
+      btnExecuteSingle: { zh: '执行动作', en: 'Execute' },
+      btnAddSequence: { zh: '添加到序列', en: 'Add to sequence' },
+      btnSendSequence: { zh: '发送序列', en: 'Send sequence' },
+      btnClearSequence: { zh: '清空序列', en: 'Clear sequence' },
+      btnStop: { zh: '紧急停止', en: 'Stop immediately' },
+      btnClearQueue: { zh: '清空动作队列', en: 'Clear queue' },
+      goBack: { zh: '⬅️ 返回控制台', en: '⬅️ Back to Controller' },
+      appendOverride: { zh: '覆盖现有队列', en: 'Override queue' },
+      appendAppend: { zh: '追加到队列末尾', en: 'Append to queue' }
+    };
+
+    function populateSelects() {
+      const movementSelect = document.getElementById('movementSelect');
+      const unitSelect = document.getElementById('unitSelect');
+      movementSelect.innerHTML = movementOptions.map(opt => `<option value="${opt.key}">${opt[currentLang]}</option>`).join('');
+      unitSelect.innerHTML = unitOptions.map(opt => `<option value="${opt.key}">${opt[currentLang]}</option>`).join('');
+      updateLanguageTexts();
+    }
+
+    function initWebSocket() {
+      websocketCarInput = new WebSocket(webSocketCarInputUrl);
+      websocketCarInput.onopen = () => appendLog('WS connected');
+      websocketCarInput.onclose = () => {
+        appendLog('WS closed, retrying...');
+        setTimeout(initWebSocket, 2000);
+      };
+      websocketCarInput.onmessage = (event) => {
+        appendLog('WS <= ' + event.data);
+      };
+    }
+
+    function appendLog(message) {
+      const logEl = document.getElementById('statusLog');
+      const time = new Date().toLocaleTimeString();
+      logEl.textContent = `[${time}] ${message}\n` + logEl.textContent;
+    }
+
+    function sendPayload(payload, tag) {
+      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
+        websocketCarInput.send(JSON.stringify(payload));
+        appendLog(`WS => ${tag || 'payload'} ${JSON.stringify(payload)}`);
+      } else {
+        appendLog('WS not connected');
+      }
+    }
+
+    function collectActionInput() {
+      const movement = document.getElementById('movementSelect').value;
+      const unit = document.getElementById('unitSelect').value;
+      const value = parseFloat(document.getElementById('valueInput').value);
+      const speed = parseFloat(document.getElementById('speedInput').value);
+      if (!movement || isNaN(value) || value <= 0) {
+        showAlert(currentLang === 'zh' ? '请填写合法的动作与数值' : 'Please enter a valid action and value');
+        return null;
+      }
+      const action = { movementMode: movement, unit, value };
+      if (!isNaN(speed)) {
+        action.speedOverride = speed;
+      }
+      return action;
+    }
+
+    function actionToPayload(action) {
+      const payload = { movementMode: action.movementMode };
+      payload[action.unit] = action.value;
+      if (action.speedOverride) {
+        payload.speedOverride = action.speedOverride;
+      }
+      return payload;
+    }
+
+    function sendSingleAction() {
+      const action = collectActionInput();
+      if (!action) return;
+      const payload = actionToPayload(action);
+      sendPayload(payload, 'single');
+    }
+
+    function addActionToSequence() {
+      if (sequenceActions.length >= MAX_SEQUENCE_ACTIONS) {
+        showAlert(currentLang === 'zh' ? '序列最多 5 个动作' : 'You can add up to 5 actions');
+        return;
+      }
+      const action = collectActionInput();
+      if (!action) return;
+      sequenceActions.push(action);
+      renderSequence();
+    }
+
+    function renderSequence() {
+      const list = document.getElementById('sequenceList');
+      if (sequenceActions.length === 0) {
+        list.innerHTML = `<div class="sequence-row">${currentLang === 'zh' ? '暂无动作' : 'No actions yet'}</div>`;
+        return;
+      }
+      list.innerHTML = sequenceActions.map((action, index) => {
+        const moveLabel = movementOptions.find(opt => opt.key === action.movementMode);
+        const unitLabel = unitOptions.find(opt => opt.key === action.unit);
+        const moveText = moveLabel ? moveLabel[currentLang] : action.movementMode;
+        const unitText = unitLabel ? unitLabel[currentLang] : action.unit;
+        const speedText = action.speedOverride ? `<span class="tag">${action.speedOverride.toFixed(2)}x</span>` : '';
+        return `
+          <div class="sequence-row">
+            <span>${index + 1}. ${moveText}</span>
+            <span>${unitText}</span>
+            <span>${action.value}</span>
+            <span>
+              ${speedText}
+              <button class="ghost-btn" onclick="removeAction(${index})">${currentLang === 'zh' ? '删除' : 'Remove'}</button>
+            </span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function removeAction(index) {
+      sequenceActions.splice(index, 1);
+      renderSequence();
+    }
+
+    function clearSequence() {
+      sequenceActions = [];
+      renderSequence();
+    }
+
+    function sendSequence() {
+      if (sequenceActions.length === 0) {
+        showAlert(currentLang === 'zh' ? '请先添加动作' : 'Add at least one action');
+        return;
+      }
+      const sequenceIdInput = document.getElementById('sequenceIdInput').value.trim();
+      const appendValue = document.getElementById('appendSelect').value === 'true';
+      const sequenceId = sequenceIdInput || Date.now();
+      const payload = {
+        sequenceId: Number(sequenceId),
+        sequence: sequenceActions.map(action => actionToPayload(action))
+      };
+      if (appendValue) {
+        payload.append = true;
+      }
+      sendPayload(payload, 'sequence');
+    }
+
+    function sendStop() {
+      sendPayload({ stop: true }, 'stop');
+    }
+
+    function clearQueue() {
+      sendPayload({ clearQueue: true }, 'clearQueue');
+    }
+
+    function showAlert(message) {
+      appendLog(message);
+      alert(message);
+    }
+
+    function toggleLanguage() {
+      currentLang = currentLang === 'zh' ? 'en' : 'zh';
+      populateSelects();
+      renderSequence();
+      updateLanguageTexts();
+    }
+
+    function updateLanguageTexts() {
+      document.documentElement.lang = currentLang;
+      document.getElementById('pageTitle').textContent = langTexts.pageTitle[currentLang];
+      document.getElementById('singleActionTitle').textContent = langTexts.singleActionTitle[currentLang];
+      document.getElementById('singleActionHint').textContent = langTexts.singleActionHint[currentLang];
+      document.getElementById('sequenceTitle').textContent = langTexts.sequenceTitle[currentLang];
+      document.getElementById('sequenceHint').textContent = langTexts.sequenceHint[currentLang];
+      document.getElementById('queueTitle').textContent = langTexts.queueTitle[currentLang];
+      document.getElementById('logTitle').textContent = langTexts.logTitle[currentLang];
+      document.getElementById('labelMovement').textContent = langTexts.labelMovement[currentLang];
+      document.getElementById('labelUnit').textContent = langTexts.labelUnit[currentLang];
+      document.getElementById('labelValue').textContent = langTexts.labelValue[currentLang];
+      document.getElementById('labelSpeed').textContent = langTexts.labelSpeed[currentLang];
+      document.getElementById('labelSequenceId').textContent = langTexts.labelSequenceId[currentLang];
+      document.getElementById('labelAppend').textContent = langTexts.labelAppend[currentLang];
+      document.getElementById('btnExecuteSingle').textContent = langTexts.btnExecuteSingle[currentLang];
+      document.getElementById('btnAddSequence').textContent = langTexts.btnAddSequence[currentLang];
+      document.getElementById('btnSendSequence').textContent = langTexts.btnSendSequence[currentLang];
+      document.getElementById('btnClearSequence').textContent = langTexts.btnClearSequence[currentLang];
+      document.getElementById('btnStop').textContent = langTexts.btnStop[currentLang];
+      document.getElementById('btnClearQueue').textContent = langTexts.btnClearQueue[currentLang];
+      document.querySelector('.lang-switch').textContent = currentLang === 'zh' ? 'English' : '中文';
+      document.querySelector('button[onclick="goBack()"]').textContent = langTexts.goBack[currentLang];
+      const appendSelect = document.getElementById('appendSelect');
+      appendSelect.options[0].text = langTexts.appendOverride[currentLang];
+      appendSelect.options[1].text = langTexts.appendAppend[currentLang];
+    }
+
+    function goBack() {
+      window.location.href = '/';
+    }
+
+    window.onload = function() {
+      initWebSocket();
+      populateSelects();
+      renderSequence();
+    };
+  </script>
+</body>
+</html>
+

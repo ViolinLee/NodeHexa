@@ -18,8 +18,6 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <controller_index.h>
-#include <calibration_index.h>
 #include <ESPAsyncWebServer.h>
 #include <Wifi.h>
 #include <ArduinoJson.h>
@@ -32,6 +30,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "calibration.h"
 #include "PinDefines.h"
 #include "ap_config.h"
+#include "motion_controller.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -78,6 +77,8 @@ void handleCalibrationPage(AsyncWebServerRequest *request);
 void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
 void handleCalibrationGet(AsyncWebServerRequest *request);
 void handleNotFound(AsyncWebServerRequest *request);
+void handleMotionPlanner(AsyncWebServerRequest *request);
+void sendHtmlFromSpiffs(AsyncWebServerRequest *request, const char *path);
 void onRobotCmdWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 void normal_loop();
 void setting_loop();
@@ -99,6 +100,19 @@ void parseSerialMovementCommand(const String& jsonString);
 void SerialCommandTask(void *pvParameters);
 void sendSerialResponse(const String& message);
 void testUART2Connection();
+void clearMovementFlag();
+
+struct AdvancedCommandResult {
+  bool handled = false;
+  bool success = false;
+  uint32_t sequenceId = 0;
+  String message;
+};
+
+static void handleSequenceComplete(uint32_t sequenceId);
+static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json);
+static bool parseMovementModeField(JsonVariantConst value, hexapod::MovementMode& mode);
+static bool buildActionFromJson(JsonVariantConst obj, motion::Action& action, String& error);
 
 void setup() {
   // 初始化串口
@@ -132,6 +146,8 @@ void setup() {
 
   // 初始化Web服务
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/planner", HTTP_GET, handleMotionPlanner);
+  server.on("/planner.html", HTTP_GET, handleMotionPlanner);
   server.on("/calibration", HTTP_GET, handleCalibrationPage);
   server.on("/calibration", HTTP_POST, 
     [](AsyncWebServerRequest *request)
@@ -164,6 +180,8 @@ void setup() {
   // 初始化日志记录回调函数&机器人工作模式
   hexapod::initLogOutput(log_output, millis);
   hexapod::Hexapod.init(_mode == 1);
+  motion::controller().begin();
+  motion::controller().setSequenceCallback(handleSequenceComplete);
 
   // 创建电池监测任务
   xTaskCreate(
@@ -230,14 +248,22 @@ void normal_loop() {
   auto t0 = millis();
 
   auto mode = hexapod::MOVEMENT_STANDBY;
-  for (auto m = hexapod::MOVEMENT_STANDBY; m < hexapod::MOVEMENT_TOTAL; m++) {
-    if (flag & (1<<m)) {
-      mode = m;
-      break;
+  if (motion::controller().hasActiveAction()) {
+    mode = motion::controller().activeMode();
+  } else {
+    if (xSemaphoreTake(flagMutex, portMAX_DELAY) == pdTRUE) {
+      for (auto m = hexapod::MOVEMENT_STANDBY; m < hexapod::MOVEMENT_TOTAL; m++) {
+        if (flag & (1<<m)) {
+          mode = m;
+          break;
+        }
+      }
+      xSemaphoreGive(flagMutex);
     }
   }
 
   hexapod::Hexapod.processMovement(mode, REACT_DELAY);
+  motion::controller().onLoopTick(mode, REACT_DELAY);
 
   auto spent = millis() - t0;
 
@@ -258,20 +284,26 @@ void setting_loop() {
 
 /* HandleRoot
 */
+void sendHtmlFromSpiffs(AsyncWebServerRequest *request, const char *path) {
+  if (SPIFFS.exists(path)) {
+    request->send(SPIFFS, path, "text/html");
+  } else {
+    String message = "File not found: ";
+    message += path;
+    request->send(404, "text/plain", message);
+  }
+}
+
 void handleRoot(AsyncWebServerRequest *request) {
     apconfig::autoConfirmIfPending();
-    AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", web_controller_html_gz, web_controller_html_gz_len);
-    response->addHeader("Content-Encoding","gzip");
-    request->send(response);
+    sendHtmlFromSpiffs(request, "/web_controller.html");
 }
 
 /* HandleCalibrationPage
 */
 void handleCalibrationPage(AsyncWebServerRequest *request) {
   apconfig::autoConfirmIfPending();
-  AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", calibration_html_gz, calibration_html_gz_len);
-  response->addHeader("Content-Encoding", "gzip");
-  request->send(response);
+  sendHtmlFromSpiffs(request, "/calibration.html");
 }
 
 /* handleCalibrationData
@@ -301,9 +333,7 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
       _mode = 0;
       LOG_INFO("Leave Calibration Mode.");
 
-      AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", web_controller_html_gz, calibration_html_gz_len);
-      response->addHeader("Content-Encoding", "gzip");
-      request->send(response);
+      sendHtmlFromSpiffs(request, "/web_controller.html");
     }
   } else {
     if (_mode == 1) {
@@ -342,6 +372,10 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 */
 void handleNotFound(AsyncWebServerRequest *request) {
     request->send_P(404, "text/plain", "File Not Found");
+}
+
+void handleMotionPlanner(AsyncWebServerRequest *request) {
+  sendHtmlFromSpiffs(request, "/motion_planner.html");
 }
 
 /* AP 配置接口处理
@@ -500,6 +534,27 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
           return;
         }
         
+        AdvancedCommandResult adv = handleAdvancedMotionCommand(json.as<JsonVariantConst>());
+        if (adv.handled) {
+          StaticJsonDocument<160> ack;
+          ack["status"] = adv.success ? "success" : "error";
+          ack["message"] = adv.message;
+          if (adv.sequenceId) {
+            ack["sequenceId"] = adv.sequenceId;
+          }
+          String payload;
+          serializeJson(ack, payload);
+          if (adv.success) {
+            Serial.println("[WebSocket] Advanced motion command accepted");
+          } else {
+            Serial.printf("[WebSocket] Advanced command failed: %s\n", adv.message.c_str());
+          }
+          if (client) {
+            client->text(payload);
+          }
+          return;
+        }
+
         if (json.containsKey("movementMode")) {
           int16_t movementMode = json["movementMode"];
 
@@ -670,11 +725,242 @@ void printWelcomeMessage() {
   file.close();
 }
 
+void clearMovementFlag() {
+  if (xSemaphoreTake(flagMutex, portMAX_DELAY) == pdTRUE) {
+    flag = 0;
+    xSemaphoreGive(flagMutex);
+  }
+}
+
+static void handleSequenceComplete(uint32_t sequenceId) {
+  StaticJsonDocument<128> doc;
+  doc["event"] = "sequenceComplete";
+  doc["sequenceId"] = sequenceId;
+
+  String payload;
+  serializeJson(doc, payload);
+
+  sendSerialResponse(payload);
+  wsRoverCmd.textAll(payload);
+  Serial.printf("[MotionController] Sequence %u completed\n", sequenceId);
+}
+
+struct ModeNameEntry {
+  const char* name;
+  hexapod::MovementMode mode;
+};
+
+static bool parseMovementModeField(JsonVariantConst value, hexapod::MovementMode& mode) {
+  if (value.isNull()) {
+    return false;
+  }
+
+  if (value.is<int>()) {
+    int raw = value.as<int>();
+    if (raw >= 0 && raw < hexapod::MOVEMENT_TOTAL) {
+      mode = static_cast<hexapod::MovementMode>(raw);
+      return true;
+    }
+    for (int i = 0; i < hexapod::MOVEMENT_TOTAL; ++i) {
+      if (raw & (1 << i)) {
+        mode = static_cast<hexapod::MovementMode>(i);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (value.is<const char*>()) {
+    static constexpr ModeNameEntry kModeNames[] = {
+      {"standby", hexapod::MOVEMENT_STANDBY},
+      {"forward", hexapod::MOVEMENT_FORWARD},
+      {"forwardfast", hexapod::MOVEMENT_FORWARDFAST},
+      {"forward_fast", hexapod::MOVEMENT_FORWARDFAST},
+      {"backward", hexapod::MOVEMENT_BACKWARD},
+      {"turnleft", hexapod::MOVEMENT_TURNLEFT},
+      {"turn_left", hexapod::MOVEMENT_TURNLEFT},
+      {"turnright", hexapod::MOVEMENT_TURNRIGHT},
+      {"turn_right", hexapod::MOVEMENT_TURNRIGHT},
+      {"shiftleft", hexapod::MOVEMENT_SHIFTLEFT},
+      {"shift_left", hexapod::MOVEMENT_SHIFTLEFT},
+      {"shiftright", hexapod::MOVEMENT_SHIFTRIGHT},
+      {"shift_right", hexapod::MOVEMENT_SHIFTRIGHT},
+      {"climb", hexapod::MOVEMENT_CLIMB},
+      {"rotatex", hexapod::MOVEMENT_ROTATEX},
+      {"rotate_x", hexapod::MOVEMENT_ROTATEX},
+      {"rotatey", hexapod::MOVEMENT_ROTATEY},
+      {"rotate_y", hexapod::MOVEMENT_ROTATEY},
+      {"rotatez", hexapod::MOVEMENT_ROTATEZ},
+      {"rotate_z", hexapod::MOVEMENT_ROTATEZ},
+      {"twist", hexapod::MOVEMENT_TWIST},
+    };
+    String lower = value.as<const char*>();
+    lower.toLowerCase();
+    for (auto entry : kModeNames) {
+      if (lower == entry.name) {
+        mode = entry.mode;
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+static bool buildActionFromJson(JsonVariantConst obj, motion::Action& action, String& error) {
+  JsonVariantConst modeField = obj["movementMode"];
+  if (modeField.isNull()) {
+    modeField = obj["mode"];
+  }
+  if (!parseMovementModeField(modeField, action.mode)) {
+    error = "movementMode missing or invalid";
+    return false;
+  }
+
+  if (obj.containsKey("speedOverride")) {
+    action.speed = obj["speedOverride"].as<float>();
+  }
+
+  if (obj.containsKey("durationMs")) {
+    action.unit = motion::Unit::DurationMs;
+    action.durationMs = obj["durationMs"].as<uint32_t>();
+    action.value = action.durationMs;
+    return action.durationMs > 0;
+  }
+
+  if (obj.containsKey("cycles")) {
+    action.unit = motion::Unit::Cycles;
+    action.value = obj["cycles"].as<float>();
+  } else if (obj.containsKey("steps")) {
+    action.unit = motion::Unit::Steps;
+    action.value = obj["steps"].as<float>();
+  } else if (obj.containsKey("distance")) {
+    action.unit = motion::Unit::Distance;
+    action.value = obj["distance"].as<float>();
+  } else if (obj.containsKey("angle")) {
+    action.unit = motion::Unit::Angle;
+    action.value = obj["angle"].as<float>();
+  } else {
+    error = "missing duration/cycles/steps/distance/angle";
+    return false;
+  }
+
+  if (action.value <= 0.0f) {
+    error = "value must be positive";
+    return false;
+  }
+  return true;
+}
+
+static bool hasActionParameters(JsonVariantConst json) {
+  return json.containsKey("cycles")
+      || json.containsKey("steps")
+      || json.containsKey("distance")
+      || json.containsKey("angle")
+      || json.containsKey("durationMs");
+}
+
+static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) {
+  AdvancedCommandResult result;
+
+  if (json.containsKey("stop") && json["stop"].as<bool>()) {
+    result.handled = true;
+    motion::controller().clear("[Motion] stop command");
+    clearMovementFlag();
+    result.success = true;
+    result.message = "Motion stopped";
+    return result;
+  }
+
+  if (json.containsKey("clearQueue") && json["clearQueue"].as<bool>()) {
+    result.handled = true;
+    motion::controller().clear("[Motion] queue cleared");
+    result.success = true;
+    result.message = "Queue cleared";
+    return result;
+  }
+
+  if (json.containsKey("sequence")) {
+    result.handled = true;
+    JsonArray seq = json["sequence"].as<JsonArray>();
+    if (seq.isNull() || seq.size() == 0 || seq.size() > 5) {
+      result.success = false;
+      result.message = "sequence size must be 1-5";
+      return result;
+    }
+
+    bool append = json["append"] | false;
+    uint32_t seqId = json["sequenceId"] | (uint32_t)millis();
+    motion::Action actions[5];
+    for (size_t i = 0; i < seq.size(); ++i) {
+      String err;
+      if (!buildActionFromJson(seq[i], actions[i], err)) {
+        result.success = false;
+        result.message = err;
+        return result;
+      }
+      actions[i].sequenceId = seqId;
+      actions[i].sequenceTail = (i == seq.size() - 1);
+    }
+
+    if (!append) {
+      motion::controller().clear("[Motion] sequence override");
+    }
+
+    if (!motion::controller().enqueueSequence(actions, seq.size())) {
+      result.success = false;
+      result.message = "queue full";
+      return result;
+    }
+
+    clearMovementFlag();
+    result.success = true;
+    result.sequenceId = seqId;
+    result.message = "sequence accepted";
+    return result;
+  }
+
+  if (hasActionParameters(json)) {
+    result.handled = true;
+    motion::Action action;
+    String error;
+    if (!buildActionFromJson(json, action, error)) {
+      result.success = false;
+      result.message = error;
+      return result;
+    }
+
+    if (json.containsKey("sequenceId")) {
+      action.sequenceId = json["sequenceId"].as<uint32_t>();
+      action.sequenceTail = true;
+    }
+
+    bool append = json["append"] | false;
+    if (!append) {
+      motion::controller().clear("[Motion] single action override");
+    }
+
+    if (!motion::controller().enqueue(action)) {
+      result.success = false;
+      result.message = "queue full";
+      return result;
+    }
+
+    clearMovementFlag();
+    result.success = true;
+    result.sequenceId = action.sequenceId;
+    result.message = "action accepted";
+    return result;
+  }
+
+  return result;
+}
+
 
 /* 解析串口运动指令
 */
 void parseSerialMovementCommand(const String& jsonString) {
-  StaticJsonDocument<128> json;
+  StaticJsonDocument<512> json;
   DeserializationError err = deserializeJson(json, jsonString);
   
   if (err) {
@@ -685,8 +971,22 @@ void parseSerialMovementCommand(const String& jsonString) {
     return;
   }
   
+  AdvancedCommandResult adv = handleAdvancedMotionCommand(json.as<JsonVariantConst>());
+  if (adv.handled) {
+    StaticJsonDocument<192> response;
+    response["status"] = adv.success ? "success" : "error";
+    response["message"] = adv.message;
+    if (adv.sequenceId) {
+      response["sequenceId"] = adv.sequenceId;
+    }
+    String payload;
+    serializeJson(response, payload);
+    sendSerialResponse(payload);
+    return;
+  }
+
   bool hasValidCommand = false;
-  
+
   // 检查是否包含movementMode字段
   if (json.containsKey("movementMode")) {
     hasValidCommand = true;
