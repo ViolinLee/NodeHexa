@@ -32,6 +32,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "calibration.h"
 #include "PinDefines.h"
 #include "ap_config.h"
+#include "robot.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -163,7 +164,9 @@ void setup() {
 
   // 初始化日志记录回调函数&机器人工作模式
   hexapod::initLogOutput(log_output, millis);
-  hexapod::Hexapod.init(_mode == 1);
+  if (hexapod::Robot) {
+    hexapod::Robot->init(_mode == 1);
+  }
 
   // 创建电池监测任务
   xTaskCreate(
@@ -237,7 +240,9 @@ void normal_loop() {
     }
   }
 
-  hexapod::Hexapod.processMovement(mode, REACT_DELAY);
+  if (hexapod::Robot) {
+    hexapod::Robot->processMovement(mode, REACT_DELAY);
+  }
 
   auto spent = millis() - t0;
 
@@ -284,20 +289,26 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
     if ((calibrationData.operation == CALIBRATESTART) && (_mode == 0)) {
       _mode = 1;
       LOG_INFO("Enter Calibration Mode.");
-      hexapod::Hexapod.clearOffset();
-      hexapod::Hexapod.calibrationTestAllLeg(test_angle);
+      if (hexapod::Robot) {
+        hexapod::Robot->clearOffset();
+        hexapod::Robot->calibrationTestAllLeg(test_angle);
+      }
 
       request->send(200, "application/json", "{\"status\":\"success\"}");
     } else if ((calibrationData.operation == CALIBRATESTART_EXISTING) && (_mode == 0)) {
       // 进入校准模式，但不清零现有偏移；舵机转到90°+offset
       _mode = 1;
       LOG_INFO("Enter Calibration Mode (use existing offsets).");
-      hexapod::Hexapod.calibrationTestAllLeg(test_angle);
+      if (hexapod::Robot) {
+        hexapod::Robot->calibrationTestAllLeg(test_angle);
+      }
 
       request->send(200, "application/json", "{\"status\":\"success\"}");
     } else if ((calibrationData.operation == CALIBRATESAVE) && (_mode == 1)) {
-      hexapod::Hexapod.calibrationSave();
-      hexapod::Hexapod.init(_mode == 1, true);
+      if (hexapod::Robot) {
+        hexapod::Robot->calibrationSave();
+        hexapod::Robot->init(_mode == 1, true);
+      }
       _mode = 0;
       LOG_INFO("Leave Calibration Mode.");
 
@@ -307,8 +318,10 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
     }
   } else {
     if (_mode == 1) {
-      hexapod::Hexapod.calibrationSet(calibrationData);
-      hexapod::Hexapod.calibrationTest(calibrationData.legIndex, calibrationData.partIndex, test_angle);
+      if (hexapod::Robot) {
+        hexapod::Robot->calibrationSet(calibrationData);
+        hexapod::Robot->calibrationTest(calibrationData.legIndex, calibrationData.partIndex, test_angle);
+      }
       request->send(200, "application/json", "{\"status\":\"success\"}");
     }
   }
@@ -322,11 +335,14 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
   doc["exists"] = exists;
 
   JsonArray offsets = doc.createNestedArray("offsets");
+  // 目前仍按六足结构导出校准数据；后续为四足机型单独扩展
   for (int i = 0; i < 6; i++) {
     JsonArray leg = offsets.createNestedArray();
     for (int j = 0; j < 3; j++) {
       int offset = 0;
-      hexapod::Hexapod.calibrationGet(i, j, offset);
+      if (hexapod::Robot) {
+        hexapod::Robot->calibrationGet(i, j, offset);
+      }
       leg.add(offset);
     }
   }
@@ -518,7 +534,9 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         // Handle speed control
         if (json.containsKey("speed")) {
           float speed = json["speed"];
-          hexapod::Hexapod.setMovementSpeed(speed);
+          if (hexapod::Robot) {
+            hexapod::Robot->setMovementSpeed(speed);
+          }
           Serial.printf("WebSocket: Speed set to %.2f\n", speed);
         }
         
@@ -526,11 +544,22 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         if (json.containsKey("speedLevel")) {
           int level = json["speedLevel"];
           if (level >= hexapod::SPEED_SLOWEST && level <= hexapod::SPEED_FAST) {
-            hexapod::Hexapod.setMovementSpeedLevel((hexapod::SpeedLevel)level);
+            if (hexapod::Robot) {
+              hexapod::Robot->setMovementSpeedLevel((hexapod::SpeedLevel)level);
+            }
             Serial.printf("WebSocket: Speed level set to %d\n", level);
           } else {
             Serial.printf("WebSocket: Invalid speed level %d\n", level);
           }
+        }
+
+        // Handle gait mode control (可选字段，六足实现会忽略)
+        if (json.containsKey("gaitMode")) {
+          int gaitMode = json["gaitMode"];
+          if (hexapod::Robot) {
+            hexapod::Robot->setGaitMode(gaitMode);
+          }
+          Serial.printf("WebSocket: Gait mode set to %d\n", gaitMode);
         }
       }
       break;
@@ -735,12 +764,14 @@ void parseSerialMovementCommand(const String& jsonString) {
   if (json.containsKey("speed")) {
     hasValidCommand = true;
     float speed = json["speed"];
-    hexapod::Hexapod.setMovementSpeed(speed);
+    if (hexapod::Robot) {
+      hexapod::Robot->setMovementSpeed(speed);
+    }
     Serial.printf("UART2: Speed set to %.2f\n", speed);
     
     StaticJsonDocument<128> response;
     response["status"] = "success";
-    response["speed"] = hexapod::Hexapod.getMovementSpeed();
+    response["speed"] = hexapod::Robot ? hexapod::Robot->getMovementSpeed() : 0.0f;
     response["message"] = "Speed updated";
     
     String responseStr;
@@ -753,13 +784,15 @@ void parseSerialMovementCommand(const String& jsonString) {
     hasValidCommand = true;
     int level = json["speedLevel"];
     if (level >= hexapod::SPEED_SLOWEST && level <= hexapod::SPEED_FAST) {
-      hexapod::Hexapod.setMovementSpeedLevel((hexapod::SpeedLevel)level);
+      if (hexapod::Robot) {
+        hexapod::Robot->setMovementSpeedLevel((hexapod::SpeedLevel)level);
+      }
       Serial.printf("UART2: Speed level set to %d\n", level);
       
       StaticJsonDocument<128> response;
       response["status"] = "success";
       response["speedLevel"] = level;
-      response["speed"] = hexapod::Hexapod.getMovementSpeed();
+      response["speed"] = hexapod::Robot ? hexapod::Robot->getMovementSpeed() : 0.0f;
       response["message"] = "Speed level updated";
       
       String responseStr;
@@ -768,6 +801,16 @@ void parseSerialMovementCommand(const String& jsonString) {
     } else {
       sendSerialResponse("{\"status\":\"error\",\"message\":\"Invalid speed level\"}");
     }
+  }
+
+  // Handle gait mode control (可选字段，六足实现会忽略)
+  if (json.containsKey("gaitMode")) {
+    hasValidCommand = true;
+    int gaitMode = json["gaitMode"];
+    if (hexapod::Robot) {
+      hexapod::Robot->setGaitMode(gaitMode);
+    }
+    Serial.printf("UART2: Gait mode set to %d\n", gaitMode);
   }
   
   if (!hasValidCommand) {

@@ -4,10 +4,11 @@
 #include "leg.h"
 #include "calibration.h"
 #include "config.h"
+#include "robot.h"
 
 namespace hexapod {
 
-    class HexapodClass {
+    class HexapodClass : public RobotBase {
     public:
         HexapodClass();
 

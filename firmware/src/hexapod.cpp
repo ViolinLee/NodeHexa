@@ -4,10 +4,16 @@
 #include "hexapod.h"
 #include "servo.h"
 #include "debug.h"
+#include "robot.h"
 
 namespace hexapod {
 
     HexapodClass Hexapod;
+
+#ifndef ROBOT_MODEL_NODEQUADMINI
+    // 默认机型：六足 Hexapod
+    RobotBase* Robot = &Hexapod;
+#endif
 
     HexapodClass::HexapodClass(): 
         legs_{{0}, {1}, {2}, {3}, {4}, {5}}, 
