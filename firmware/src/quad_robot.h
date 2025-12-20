@@ -4,7 +4,7 @@
 #include "quad_leg.h"
 #include "quad_movement.h"
 
-namespace quad {
+namespace quadruped {
 
     // NodeQuadMini 机器人骨架，实现与 Hexapod 相同的 RobotBase 接口
     class QuadRobot : public hexapod::RobotBase {
@@ -26,7 +26,7 @@ namespace quad {
         void calibrationSave() override;
         void calibrationGet(int legIndex, int partIndex, int& offset) override;
         void calibrationSet(int legIndex, int partIndex, int offset) override;
-        void calibrationSet(hexapod::CalibrationData& calibrationData) override;
+        void calibrationSet(CalibrationData& calibrationData) override;
         void calibrationTest(int legIndex, int partIndex, float angle) override;
         void calibrationTestAllLeg(float angle) override;
         void clearOffset() override;
@@ -48,5 +48,5 @@ namespace quad {
         QuadMovement movement_;
     };
 
-} // namespace quad
+} // namespace quadruped
 

@@ -1,9 +1,10 @@
 #pragma once
 
+#include <functional>
 #include "base.h"
-#include "servo_quad.h"
+#include "quad_servo.h"
 
-namespace quad {
+namespace quadruped {
 
     class Leg {
     public:
@@ -52,5 +53,5 @@ namespace quad {
         hexapod::Point3D tipPosLocal_;
     };
 
-} // namespace quad
+} // namespace quadruped
 

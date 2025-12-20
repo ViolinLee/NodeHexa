@@ -1,17 +1,20 @@
+#ifdef ROBOT_MODEL_NODEQUADMINI
+
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <SPIFFS.h>
 
 #include "quad_robot.h"
 #include "debug.h"
 #include "config.h"
 
-namespace quad {
+namespace quadruped {
 
     using namespace hexapod;
 
     QuadRobot::QuadRobot()
         : speed_{config::defaultSpeed},
-          legs_{{0}, {1}, {2}, {3}},
+          legs_{Leg(0), Leg(1), Leg(2), Leg(3)},
           mode_{MOVEMENT_STANDBY},
           movement_{MOVEMENT_STANDBY, QUAD_GAIT_TROT} {
     }
@@ -230,5 +233,7 @@ namespace quad {
         file.close();
     }
 
-} // namespace quad
+} // namespace quadruped
+
+#endif // ROBOT_MODEL_NODEQUADMINI
 

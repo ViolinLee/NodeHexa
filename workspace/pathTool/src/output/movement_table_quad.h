@@ -1,20 +1,6 @@
 //
 // This file is generated for Quad robot, dont directly modify content...
 //
-#pragma once
-
-struct QuadLocations {
-    Point3D p[4];
-};
-
-struct QuadMovementTable {
-    const QuadLocations* table;
-    int length;
-    int stepDuration;
-    const int* entries;
-    int entriesCount;
-};
-
 namespace quad {
 
 const QuadLocations quad_trot_forward_paths[] {
@@ -604,8 +590,6 @@ const QuadLocations quad_creep_turnright_paths[] {
 };
 const int quad_creep_turnright_entries[] { 0,18 };
 const QuadMovementTable quad_creep_turnright_table {quad_creep_turnright_paths, 36, 720, quad_creep_turnright_entries, 2 };
-}
-
 const QuadMovementTable& quad_trot_forwardTable() {
     return quad_trot_forward_table;
 }
@@ -678,3 +662,5 @@ const QuadMovementTable& quad_creep_turnleftTable() {
 const QuadMovementTable& quad_creep_turnrightTable() {
     return quad_creep_turnright_table;
 }
+}
+

@@ -6,7 +6,7 @@
 namespace hexapod {
 
     // 四足机型：使用 QuadRobot 作为全局 Robot 实例
-    static quad::QuadRobot gQuadRobot;
+    static quadruped::QuadRobot gQuadRobot;
     RobotBase* Robot = &gQuadRobot;
 
 }

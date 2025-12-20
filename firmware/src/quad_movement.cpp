@@ -1,11 +1,12 @@
+#ifdef ROBOT_MODEL_NODEQUADMINI
+
 #include "quad_movement.h"
-#include "movement_table_quad.h"
 #include "config.h"
 #include "debug.h"
 
 using namespace hexapod;
 
-namespace quad {
+namespace quadruped {
 
     // 四种步态对应的多模式离线表
     extern const QuadMovementTable& quad_trot_forwardTable();
@@ -192,5 +193,6 @@ namespace quad {
         return selectTable(gaitMode_, mode_);
     }
 
-} // namespace quad
+} // namespace quadruped
 
+#endif // ROBOT_MODEL_NODEQUADMINI

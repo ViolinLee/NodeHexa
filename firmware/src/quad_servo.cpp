@@ -1,8 +1,10 @@
-#include "servo_quad.h"
+#ifdef ROBOT_MODEL_NODEQUADMINI
+
+#include "quad_servo.h"
 #include "debug.h"
 #include "pwm.h"
 
-namespace quad {
+namespace quadruped {
 
     namespace {
         // freq = 50, 1 tick = 1000000 / (50*4096) ~= 5us
@@ -78,5 +80,7 @@ namespace quad {
         return angle_;
     }
 
-} // namespace quad
+} // namespace quadruped
+
+#endif // ROBOT_MODEL_NODEQUADMINI
 

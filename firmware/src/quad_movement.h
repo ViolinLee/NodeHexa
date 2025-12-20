@@ -1,9 +1,9 @@
 #pragma once
 
-namespace quad {
+#include "movement.h"
+#include "quad_tables.h"
 
-    struct QuadLocations;
-    struct QuadMovementTable;
+namespace quadruped {
 
     enum QuadGaitMode {
         QUAD_GAIT_TROT = 0,
@@ -41,5 +41,5 @@ namespace quad {
         float speed_;
     };
 
-} // namespace quad
+} // namespace quadruped
 

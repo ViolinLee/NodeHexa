@@ -1,3 +1,5 @@
+#ifdef ROBOT_MODEL_NODEQUADMINI
+
 #include <Arduino.h>
 
 #include "quad_leg.h"
@@ -8,7 +10,7 @@
 
 using namespace hexapod::config;
 
-namespace quad {
+namespace quadruped {
 
     namespace {
 
@@ -197,5 +199,7 @@ namespace quad {
         }
     }
 
-} // namespace quad
+} // namespace quadruped
+
+#endif // ROBOT_MODEL_NODEQUADMINI
 

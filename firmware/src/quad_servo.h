@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace quad {
+namespace quadruped {
 
     // 四足版本的舵机类：使用单片 PCA9685，顺序映射 12 路通道
     class ServoQuad {
@@ -35,5 +35,5 @@ namespace quad {
         float adjust_angle_{0.0f};
     };
 
-} // namespace quad
+} // namespace quadruped
 

@@ -1,5 +1,8 @@
+#ifdef ROBOT_MODEL_NODEQUADMINI
+
 #include "base.h"
 #include "movement.h"
+#include "quad_tables.h"
 
 using namespace hexapod;
 
@@ -29,5 +32,7 @@ using namespace hexapod;
 #define Q4Z     -80.0f
 
 // 引入由 pathTool 生成的四足动作表
-#include "movement_table_quad.h"
+#include "generated/movement_table_quad.h"
+
+#endif // ROBOT_MODEL_NODEQUADMINI
 

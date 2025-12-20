@@ -6,7 +6,6 @@ from typing import Dict, Tuple, List
 
 import config
 import kinematics
-from path.lib import point_rotate_z, matrix_mul
 
 
 # ------------------------------
@@ -56,6 +55,9 @@ class HexapodModel(RobotPathModel):
         return ok, failed
 
     def verify_path(self, path_name: str, params: Tuple) -> bool:
+        # 仅六足生成需要 numpy（path.lib 内部 import numpy）
+        from path.lib import point_rotate_z, matrix_mul
+
         data, mode, _, _ = params
         print(f"Verifying {path_name}...")
 
@@ -482,12 +484,14 @@ class QuadModel(RobotPathModel):
 
         result = "\nconst QuadLocations {}_paths[] {{\n".format(path_name)
         for i in range(count):
-            result += "    {" + ", ".join(
+            # QuadLocations 结构体只有一个成员：Point3D p[4]
+            # 这里需要额外一层括号来初始化数组成员，否则会报 “too many initializers”
+            result += "    {{" + ", ".join(
                 "{{Q{idx}X+({x:.2f}), Q{idx}Y+({y:.2f}), Q{idx}Z+({z:.2f})}}".format(
                     x=data[leg][i][0], y=data[leg][i][1], z=data[leg][i][2], idx=leg + 1
                 )
                 for leg in range(self.LEG_COUNT)
-            ) + "},\n"
+            ) + "}},\n"
         result += "};\n"
         result += "const int {}_entries[] {{ {} }};\n".format(
             path_name, ",".join(str(e) for e in entries)
@@ -499,6 +503,7 @@ class QuadModel(RobotPathModel):
         return result
 
     def generate_c_def(self, path_name: str) -> str:
+        # 注意：必须放在 namespace quadruped 内，否则会出现 table 符号不可见的问题
         return """const QuadMovementTable& {name}Table() {{
     return {name}_table;
 }}""".format(name=path_name)
@@ -515,11 +520,28 @@ if __name__ == '__main__':
                         help='robot model: hexapod or quad (default: hexapod)')
     parser.add_argument('--pathDir', metavar='DIR', dest='path_dir', default='path',
                         help='path script directory for hexapod (default: path)')
-    parser.add_argument('--outPath', metavar='PATH', dest='out_path', default='output/movement_table.h',
-                        help='output header path (default: output/movement_table.h)')
+    parser.add_argument('--outPath', metavar='PATH', dest='out_path', default=None,
+                        help='output header path (default: firmware/src/generated/movement_table*.h)')
     args = parser.parse_args()
 
+    # 默认输出：直接落到固件目录，避免在仓库里出现多份“生成文件副本”
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+    generated_dir = os.path.join(repo_root, "firmware", "src", "generated")
+    if args.out_path is None:
+        if args.robot == "quad":
+            args.out_path = os.path.join(generated_dir, "movement_table_quad.h")
+        else:
+            args.out_path = os.path.join(generated_dir, "movement_table.h")
+    os.makedirs(os.path.dirname(os.path.abspath(args.out_path)), exist_ok=True)
+
     if args.robot == 'hexapod':
+        # 兼容从任意工作目录运行：默认 pathDir=path 时，优先尝试以脚本目录为基准解析
+        if not os.path.isabs(args.path_dir) and not os.path.exists(args.path_dir):
+            candidate = os.path.join(script_dir, args.path_dir)
+            if os.path.exists(candidate):
+                args.path_dir = candidate
+
         # 保持原有行为：从 pathDir 中搜集脚本并生成六足 movement_table.h
         sys.path.insert(0, args.path_dir)
         model = HexapodModel()
@@ -542,10 +564,10 @@ if __name__ == '__main__':
             for path in results:
                 print(model.generate_c_def(path), file=f)
 
-        print("Hexapod result written to {}".format(args.out_path))
+        print("Hexapod result written to {}".format(os.path.abspath(args.out_path)))
 
     elif args.robot == 'quad':
-        # 生成四足多步态离线动作表，建议 outPath 设为 output/movement_table_quad.h
+        # 生成四足多步态离线动作表
         model = QuadModel()
         results = model.generate_all_gaits()
 
@@ -553,27 +575,13 @@ if __name__ == '__main__':
             print("//", file=f)
             print("// This file is generated for Quad robot, dont directly modify content...", file=f)
             print("//", file=f)
-            print("#pragma once", file=f)
-            print("", file=f)
-            print("struct QuadLocations {", file=f)
-            print("    Point3D p[4];", file=f)
-            print("};", file=f)
-            print("", file=f)
-            print("struct QuadMovementTable {", file=f)
-            print("    const QuadLocations* table;", file=f)
-            print("    int length;", file=f)
-            print("    int stepDuration;", file=f)
-            print("    const int* entries;", file=f)
-            print("    int entriesCount;", file=f)
-            print("};", file=f)
-            print("", file=f)
-            print("namespace quad {", file=f)
+            print("namespace quadruped {", file=f)
             for path, data in results.items():
                 print(model.generate_c_body(path, data), file=f)
-            print("}\n", file=f)
             for path in results:
                 print(model.generate_c_def(path), file=f)
+            print("}\n", file=f)
 
-        print("Quad result written to {}".format(args.out_path))
+        print("Quad result written to {}".format(os.path.abspath(args.out_path)))
 
 
