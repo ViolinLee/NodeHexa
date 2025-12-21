@@ -63,22 +63,22 @@ namespace quadruped {
 
         switch (legIndex) {
         case 0: // Front Right，近似六足 leg2 (-45/315 度)
-            mountPosition_ = hexapod::Point3D(kLegMountOtherX, -kLegMountOtherY, 0);
+            mountPosition_ = hexapod::Point3D(kQuadLegMountOtherX, -kQuadLegMountOtherY, 0);
             localConv_ = rotate45;
             worldConv_ = rotate315;
             break;
         case 1: // Front Left，近似六足 leg0 (+45 度)
-            mountPosition_ = hexapod::Point3D(kLegMountOtherX, kLegMountOtherY, 0);
+            mountPosition_ = hexapod::Point3D(kQuadLegMountOtherX, kQuadLegMountOtherY, 0);
             localConv_ = rotate315;
             worldConv_ = rotate45;
             break;
         case 2: // Back Left，近似六足 leg5 (135 度)
-            mountPosition_ = hexapod::Point3D(-kLegMountOtherX, kLegMountOtherY, 0);
+            mountPosition_ = hexapod::Point3D(-kQuadLegMountOtherX, kQuadLegMountOtherY, 0);
             localConv_ = rotate225;
             worldConv_ = rotate135;
             break;
         case 3: // Back Right，近似六足 leg3 (-135/225 度)
-            mountPosition_ = hexapod::Point3D(-kLegMountOtherX, -kLegMountOtherY, 0);
+            mountPosition_ = hexapod::Point3D(-kQuadLegMountOtherX, -kQuadLegMountOtherY, 0);
             localConv_ = rotate135;
             worldConv_ = rotate225;
             break;

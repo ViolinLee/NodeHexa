@@ -27,25 +27,14 @@ namespace quadruped {
             forceResetAllLegTippos();
         }
 
+        // 与六足一致：standby 也走 movement table，确保初始 position_ 已初始化
+        movement_.setMode(MOVEMENT_STANDBY);
+        mode_ = MOVEMENT_STANDBY;
+
         LOG_INFO("QuadRobot init done.");
     }
 
     void QuadRobot::processMovement(MovementMode mode, int elapsedMs) {
-        // STANDBY: 直接维持在默认站立姿态（需与 QuadModel 中的 home_x/home_y/home_z 保持一致）
-        if (mode == MOVEMENT_STANDBY) {
-            const Point3D home[4] = {
-                Point3D(80.0f,  -80.0f, -80.0f),   // FR
-                Point3D(-80.0f, -80.0f, -80.0f),   // BR
-                Point3D(-80.0f,  80.0f, -80.0f),   // BL
-                Point3D(80.0f,   80.0f, -80.0f),   // FL
-            };
-            for (int i = 0; i < 4; ++i) {
-                legs_[i].moveTip(home[i]);
-            }
-            mode_ = mode;
-            return;
-        }
-
         if (mode_ != mode) {
             mode_ = mode;
             movement_.setMode(mode_);

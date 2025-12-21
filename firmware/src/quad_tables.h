@@ -16,6 +16,9 @@ namespace quadruped {
         int entriesCount;
     };
 
+    // 与六足一致：standby table 在 quad_movements.cpp 中定义
+    const QuadMovementTable& standbyTable();
+
     // ---- 四足离线动作表接口声明（由 pathTool 生成并在 quad_movements.cpp 中引入定义） ----
     const QuadMovementTable& quad_trot_forwardTable();
     const QuadMovementTable& quad_trot_backwardTable();

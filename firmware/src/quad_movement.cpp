@@ -41,6 +41,7 @@ namespace quadruped {
 
         const QuadMovementTable& selectByMode(
             MovementMode mode,
+            const QuadMovementTable& standby,
             const QuadMovementTable& forward,
             const QuadMovementTable& backward,
             const QuadMovementTable& shiftleft,
@@ -48,6 +49,8 @@ namespace quadruped {
             const QuadMovementTable& turnleft,
             const QuadMovementTable& turnright) {
             switch (mode) {
+            case MOVEMENT_STANDBY:
+                return standby;
             case MOVEMENT_FORWARD:
                 return forward;
             case MOVEMENT_BACKWARD:
@@ -71,6 +74,7 @@ namespace quadruped {
             case QUAD_GAIT_TROT:
                 return selectByMode(
                     mode,
+                    standbyTable(),
                     quad_trot_forwardTable(),
                     quad_trot_backwardTable(),
                     quad_trot_shiftleftTable(),
@@ -80,6 +84,7 @@ namespace quadruped {
             case QUAD_GAIT_WALK:
                 return selectByMode(
                     mode,
+                    standbyTable(),
                     quad_walk_forwardTable(),
                     quad_walk_backwardTable(),
                     quad_walk_shiftleftTable(),
@@ -89,6 +94,7 @@ namespace quadruped {
             case QUAD_GAIT_GALLOP:
                 return selectByMode(
                     mode,
+                    standbyTable(),
                     quad_gallop_forwardTable(),
                     quad_gallop_backwardTable(),
                     quad_gallop_shiftleftTable(),
@@ -98,6 +104,7 @@ namespace quadruped {
             case QUAD_GAIT_CREEP:
                 return selectByMode(
                     mode,
+                    standbyTable(),
                     quad_creep_forwardTable(),
                     quad_creep_backwardTable(),
                     quad_creep_shiftleftTable(),
@@ -108,6 +115,7 @@ namespace quadruped {
                 // 容错：未知 gait 时退化为 trotting
                 return selectByMode(
                     mode,
+                    standbyTable(),
                     quad_trot_forwardTable(),
                     quad_trot_backwardTable(),
                     quad_trot_shiftleftTable(),
