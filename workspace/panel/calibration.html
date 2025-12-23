@@ -280,15 +280,15 @@ function getLegLayout() {
   const legCount = (robotCaps && robotCaps.robot && robotCaps.robot.legCount) ? robotCaps.robot.legCount : 6;
   if (legCount === 4) {
     // Quad leg index mapping (from firmware/quad_leg.cpp):
-    // 0 = Front Right, 1 = Front Left, 2 = Back Left, 3 = Back Right
+    // 0 = Front Right, 1 = Back Right, 2 = Back Left, 3 = Front Left
     return [
       { legs: [
-        { legIndex: 1, zh: '左前腿 (1)', en: 'Left Front (1)' },
+        { legIndex: 3, zh: '左前腿 (3)', en: 'Left Front (3)' },
         { legIndex: 0, zh: '右前腿 (0)', en: 'Right Front (0)' },
       ]},
       { legs: [
         { legIndex: 2, zh: '左后腿 (2)', en: 'Left Back (2)' },
-        { legIndex: 3, zh: '右后腿 (3)', en: 'Right Back (3)' },
+        { legIndex: 1, zh: '右后腿 (1)', en: 'Right Back (1)' },
       ]},
     ];
   }

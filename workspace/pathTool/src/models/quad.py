@@ -16,7 +16,8 @@ class QuadModel(RobotPathModel):
 
     def __init__(self):
         # 默认站立足端坐标：从 firmware/include/config.h 推导（与 quad_movements.cpp/quad_robot.cpp 一致）
-        # 约定顺序与固件 legs_[] 一致：0:FR, 1:FL, 2:BL, 3:BR
+        # 约定顺序与固件 legs_[] / QuadLocations.p[0..3] 一致：
+        #   0:FR, 1:BR, 2:BL, 3:FL
         cfg = self._load_firmware_config()
 
         # trig constants（与固件保持一致）
@@ -37,8 +38,9 @@ class QuadModel(RobotPathModel):
         offset_y = cfg["kQuadLegMountOtherY"] + reach_xy
         standby_z = -standby_z_pos
 
-        self.home_x = [offset_x, offset_x, -offset_x, -offset_x]  # FR, FL, BL, BR
-        self.home_y = [-offset_y, offset_y, offset_y, -offset_y]
+        # 坐标系与六足一致：X 向右为正，Y 向前为正
+        self.home_x = [offset_x, offset_x, -offset_x, -offset_x]  # FR, BR, BL, FL
+        self.home_y = [offset_y, -offset_y, -offset_y, offset_y]
         self.home_z = [standby_z, standby_z, standby_z, standby_z]
         self.gait = QuadGait(self.home_x, self.home_y, self.home_z, frame_time_ms=20)
 

@@ -36,9 +36,9 @@ class QuadGait:
         return path
 
     def _formated_path_status(self, fr_path_quad, fl_path_quad, bl_path_quad, br_path_quad, move_status):
-        # path_quad: N x 4 x 3 （按 FR, FL, BL, BR 顺序，与固件 legs_[] 对齐）
+        # path_quad: N x 4 x 3（按 FR, BR, BL, FL 顺序，与固件 legs_[] / QuadLocations.p[0..3] 对齐）
         path_quad = [
-            [fr_path_quad[path_id], fl_path_quad[path_id], bl_path_quad[path_id], br_path_quad[path_id]]
+            [fr_path_quad[path_id], br_path_quad[path_id], bl_path_quad[path_id], fl_path_quad[path_id]]
             for path_id in range(len(fr_path_quad))
         ]
         if move_status == self.MOVE_STANDBY:
@@ -49,7 +49,7 @@ class QuadGait:
             # 目前仅支持前进，其他模式留待后续扩展
             corrected_path = path_quad
 
-        # 叠加到世界坐标下默认站立位置
+        # 叠加到世界坐标下默认站立位置（顺序同上：FR, BR, BL, FL）
         path_quad_world = [
             [
                 [

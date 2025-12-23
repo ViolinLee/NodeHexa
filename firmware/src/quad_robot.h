@@ -39,6 +39,7 @@ namespace quadruped {
         void calibrationLoad();
 
     private:
+        // 校准文件（四足）
         static constexpr const char* kCalibrationFilePath = "/calibration_quad.json";
 
         float speed_;

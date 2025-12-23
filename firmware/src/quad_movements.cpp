@@ -29,21 +29,22 @@ using namespace hexapod::config;
 #define Q_OFFSET_X (kQuadLegMountOtherX + Q_REACH_XY)
 #define Q_OFFSET_Y (kQuadLegMountOtherY + Q_REACH_XY)
 
-// 注意：Q1..Q4 的顺序与 QuadLocations.p[0..3] 对齐（FR, FL, BL, BR）
-#define Q1X     (Q_OFFSET_X)
-#define Q1Y     (-Q_OFFSET_Y)
+// 注意：Q1..Q4 的顺序与 QuadLocations.p[0..3] 对齐（FR, BR, BL, FL）
+// 坐标系与六足一致：X 向右为正，Y 向前为正
+#define Q1X     (Q_OFFSET_X)     // FR: (+X, +Y)
+#define Q1Y     (Q_OFFSET_Y)
 #define Q1Z     (-Q_STANDBY_Z_POS)
 
-#define Q2X     (Q_OFFSET_X)
-#define Q2Y     (Q_OFFSET_Y)
+#define Q2X     (Q_OFFSET_X)     // BR: (+X, -Y)
+#define Q2Y     (-Q_OFFSET_Y)
 #define Q2Z     (-Q_STANDBY_Z_POS)
 
-#define Q3X     (-Q_OFFSET_X)
-#define Q3Y     (Q_OFFSET_Y)
+#define Q3X     (-Q_OFFSET_X)    // BL: (-X, -Y)
+#define Q3Y     (-Q_OFFSET_Y)
 #define Q3Z     (-Q_STANDBY_Z_POS)
 
-#define Q4X     (-Q_OFFSET_X)
-#define Q4Y     (-Q_OFFSET_Y)
+#define Q4X     (-Q_OFFSET_X)    // FL: (-X, +Y)
+#define Q4Y     (Q_OFFSET_Y)
 #define Q4Z     (-Q_STANDBY_Z_POS)
 
 namespace quadruped {

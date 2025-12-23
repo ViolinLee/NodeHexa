@@ -55,32 +55,36 @@ namespace quadruped {
     //
 
     Leg::Leg(int legIndex) : index_(legIndex) {
-        // 四足腿的空间分布：
-        //  1 (FL)      0 (FR)
-        //  2 (BL)      3 (BR)
+        // 四足腿定义（与六足保持一致的世界坐标系）：
+        // - 世界坐标：X 向右为正，Y 向前为正；角度定义为 CCW：
+        //      0° = +X, 90° = +Y
+        // - 腿索引从 FR 开始，按顺时针（CW）编号：
+        //      0=FR(45°), 1=BR(315°), 2=BL(225°), 3=FL(135°)
         //
-        // 其中位置与旋转近似参考六足中的 0,2,5,3 四条腿
+        // 旋转约定与六足一致：
+        // - world -> local : rotate(-theta)
+        // - local -> world : rotate(+theta)
 
         switch (legIndex) {
-        case 0: // Front Right，近似六足 leg2 (-45/315 度)
-            mountPosition_ = hexapod::Point3D(kQuadLegMountOtherX, -kQuadLegMountOtherY, 0);
-            localConv_ = rotate45;
-            worldConv_ = rotate315;
-            break;
-        case 1: // Front Left，近似六足 leg0 (+45 度)
+        case 0: // FR, +45°
             mountPosition_ = hexapod::Point3D(kQuadLegMountOtherX, kQuadLegMountOtherY, 0);
             localConv_ = rotate315;
             worldConv_ = rotate45;
             break;
-        case 2: // Back Left，近似六足 leg5 (135 度)
-            mountPosition_ = hexapod::Point3D(-kQuadLegMountOtherX, kQuadLegMountOtherY, 0);
-            localConv_ = rotate225;
-            worldConv_ = rotate135;
+        case 1: // BR, 315° (-45°)
+            mountPosition_ = hexapod::Point3D(kQuadLegMountOtherX, -kQuadLegMountOtherY, 0);
+            localConv_ = rotate45;
+            worldConv_ = rotate315;
             break;
-        case 3: // Back Right，近似六足 leg3 (-135/225 度)
+        case 2: // BL, 225° (-135°)
             mountPosition_ = hexapod::Point3D(-kQuadLegMountOtherX, -kQuadLegMountOtherY, 0);
             localConv_ = rotate135;
             worldConv_ = rotate225;
+            break;
+        case 3: // FL, 135°
+            mountPosition_ = hexapod::Point3D(-kQuadLegMountOtherX, kQuadLegMountOtherY, 0);
+            localConv_ = rotate225;
+            worldConv_ = rotate135;
             break;
         default:
             mountPosition_ = hexapod::Point3D(0, 0, 0);

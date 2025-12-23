@@ -28,8 +28,11 @@ namespace quadruped {
             pwmInited = true;
         }
 
-        // 简单的通道映射：legIndex * 3 + partIndex → 0..11
+        // PWM 通道映射：legIndex * 3 + partIndex → 0..11
+        // 不做任何“兼容映射”，避免隐藏逻辑影响真机调试与排查。
         int quad2pwm(int legIndex, int partIndex) {
+            if (legIndex < 0 || legIndex >= 4 || partIndex < 0 || partIndex >= 3)
+                return 0;
             return legIndex * 3 + partIndex;
         }
     }
