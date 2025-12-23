@@ -40,6 +40,17 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #define CALIBRATESAVE "CALIBRATESAVE"
 #define CALIBRATESTART_EXISTING "CALIBRATESTART_EXISTING"
 
+// 机型信息（用于 Web UI 自适配）
+#ifdef ROBOT_MODEL_NODEQUADMINI
+static constexpr const char* kRobotType = "quad";
+static constexpr int kRobotLegCount = 4;
+static constexpr const char* kCalibrationFilePath = "/calibration_quad.json";
+#else
+static constexpr const char* kRobotType = "hexa";
+static constexpr int kRobotLegCount = 6;
+static constexpr const char* kCalibrationFilePath = "/calibration.json";
+#endif
+
 // 调试模式控制
 // #define DEBUG_ADC_MONITOR  // 注释此行可关闭电池电压ADC调试输出
 // #define DEBUG_FRAME_RECEIVE  // 启用帧接收调试输出
@@ -91,6 +102,9 @@ void handleApConfigGet(AsyncWebServerRequest *request);
 void handleApConfigPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
 void handleApConfigConfirm(AsyncWebServerRequest *request);
 void handleApConfigReset(AsyncWebServerRequest *request);
+
+// 最小能力探测接口（仅返回机型与腿数）
+void handleCapsGet(AsyncWebServerRequest *request);
 
 void BatteryMonitorTask(void *pvParameters);
 void LEDControllerTask(void *pvParameters);
@@ -155,6 +169,9 @@ void setup() {
     [](AsyncWebServerRequest *request) {},
     [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {},
     handleApConfigPostBody);
+
+  // UI 能力探测（用于校准页适配四足/六足）
+  server.on("/api/caps", HTTP_GET, handleCapsGet);
 
   wsRoverCmd.onEvent(onRobotCmdWebSocketEvent);
   server.addHandler(&wsRoverCmd);
@@ -312,7 +329,13 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
       _mode = 0;
       LOG_INFO("Leave Calibration Mode.");
 
-      AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html; charset=utf-8", web_controller_html_gz, calibration_html_gz_len);
+      // 返回控制页（修复长度参数：应使用 web_controller_html_gz_len）
+      AsyncWebServerResponse *response = request->beginResponse_P(
+        200,
+        "text/html; charset=utf-8",
+        web_controller_html_gz,
+        web_controller_html_gz_len
+      );
       response->addHeader("Content-Encoding", "gzip");
       request->send(response);
     }
@@ -331,12 +354,12 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
 void handleCalibrationGet(AsyncWebServerRequest *request) {
   StaticJsonDocument<1024> doc;
 
-  bool exists = SPIFFS.exists("/calibration.json");
+  bool exists = SPIFFS.exists(kCalibrationFilePath);
   doc["exists"] = exists;
 
   JsonArray offsets = doc.createNestedArray("offsets");
-  // 目前仍按六足结构导出校准数据；后续为四足机型单独扩展
-  for (int i = 0; i < 6; i++) {
+  // 按机型导出校准数据（四足=4条腿，六足=6条腿）
+  for (int i = 0; i < kRobotLegCount; i++) {
     JsonArray leg = offsets.createNestedArray();
     for (int j = 0; j < 3; j++) {
       int offset = 0;
@@ -346,6 +369,18 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
       leg.add(offset);
     }
   }
+
+  String responseStr;
+  serializeJson(doc, responseStr);
+  request->send(200, "application/json", responseStr);
+}
+
+/* UI 能力探测：仅返回 robot.type + legCount */
+void handleCapsGet(AsyncWebServerRequest *request) {
+  StaticJsonDocument<128> doc;
+  JsonObject robot = doc.createNestedObject("robot");
+  robot["type"] = kRobotType;
+  robot["legCount"] = kRobotLegCount;
 
   String responseStr;
   serializeJson(doc, responseStr);

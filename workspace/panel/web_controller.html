@@ -443,7 +443,7 @@
   <!-- 页脚署名 -->
   <footer class="footer">
     <div class="footer-content">
-      <div class="footer-title" id="footerTitle">开源项目 · NodeHexa 六足机器人</div>
+      <div class="footer-title" id="footerTitle">开源项目 · NodeHexa 机器人</div>
       <div class="footer-links">
         <a href="https://space.bilibili.com/85652131" target="_blank" class="footer-link" title="B站主页">
           <svg class="footer-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -537,7 +537,7 @@
       pageTitle: { zh: '机器人控制', en: 'Robot Control' },
       langButton: { zh: 'English', en: '中文' },
       speedLabel: { zh: '运动速度控制', en: 'Movement Speed Control' },
-      footerTitle: { zh: '开源项目 · NodeHexa 六足机器人', en: 'Open Source · NodeHexa Hexapod Robot' },
+      footerTitle: { zh: '开源项目 · NodeHexa 机器人', en: 'Open Source · NodeHexa Robot' },
       bilibiliText: { zh: 'B站: 智造师_RoboticsCV', en: 'Bilibili: 智造师_RoboticsCV' },
       githubText: { zh: 'GitHub: ViolinLee', en: 'GitHub: ViolinLee' },
       wechatText: { zh: '公众号: RoboticsCV', en: 'WeChat: RoboticsCV' },
@@ -605,6 +605,22 @@
       const currentInfo = document.getElementById('currentInfo');
       if (currentInfo) {
         currentInfo.innerHTML = '<strong>' + langTexts.currentConfig[currentLang] + '</strong><br><span id="currentSSID">加载中...</span>';
+      }
+    }
+
+    async function loadCapsAndUpdateFooter() {
+      try {
+        const resp = await fetch('/api/caps', { cache: 'no-store' });
+        const data = await resp.json();
+        const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
+        if (type === 'quad') {
+          langTexts.footerTitle = { zh: '开源项目 · NodeQuadMini 四足机器人', en: 'Open Source · NodeQuadMini Quadruped Robot' };
+        } else {
+          langTexts.footerTitle = { zh: '开源项目 · NodeHexa 六足机器人', en: 'Open Source · NodeHexa Hexapod Robot' };
+        }
+        document.getElementById('footerTitle').textContent = langTexts.footerTitle[currentLang];
+      } catch (_) {
+        // ignore
       }
     }
 
@@ -763,11 +779,12 @@
       }
     }
 
-    window.onload = function() {
+    window.onload = async function() {
       initRobotInputWebSocket();
       initSpeedControl();
       // 默认显示中文，无需调用toggleLanguage
       updateModalTexts();
+      await loadCapsAndUpdateFooter();
       
       // 检查是否有待确认的配置
       fetch('/api/ap-config')
