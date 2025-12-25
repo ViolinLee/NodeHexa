@@ -71,3 +71,6 @@ venv/
 
 # Experiments
 experiments/
+
+# Others
+.specstory/

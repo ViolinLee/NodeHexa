@@ -526,8 +526,9 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
       AwsFrameInfo *info;
       info = (AwsFrameInfo*)arg;
       if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-        StaticJsonDocument<128> json;
-        DeserializationError err = deserializeJson(json, data);
+        // 为了支持包含 sequence 数组的高级运动指令，将文档容量从 128 增大，并显式传入长度
+        StaticJsonDocument<1024> json;
+        DeserializationError err = deserializeJson(json, data, len);
         if (err) {
           Serial.print(F("deserializeJson() failed with code: "));
           Serial.println(err.c_str());
@@ -626,8 +627,6 @@ CalibrationData parseCalibrationData(const String& jsonString) {
   return data;
 }
 
-/* 打印欢迎语（用于确认SPIFFS文件系统正常工作）
-*/
 // 电池监测任务
 void BatteryMonitorTask(void *pvParameters) {
   const uint8_t SAMPLE_SIZE = 10;
@@ -711,6 +710,7 @@ void LEDControllerTask(void *pvParameters) {
   }
 }
 
+// 打印欢迎语（用于确认SPIFFS文件系统正常工作）
 void printWelcomeMessage() {
   File file = SPIFFS.open("/text.txt");
   if(!file){
@@ -882,7 +882,7 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
 
   if (json.containsKey("sequence")) {
     result.handled = true;
-    JsonArray seq = json["sequence"].as<JsonArray>();
+    JsonArrayConst seq = json["sequence"].as<JsonArrayConst>();
     if (seq.isNull() || seq.size() == 0 || seq.size() > 5) {
       result.success = false;
       result.message = "sequence size must be 1-5";
