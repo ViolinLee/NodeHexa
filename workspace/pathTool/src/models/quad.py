@@ -134,23 +134,24 @@ class QuadModel(RobotPathModel):
             # forward: 直接使用基准轨迹
             results[f"{base_name}_forward"] = (data_fwd, "shift_quad", dur, entries)
 
-            # backward: 关于 Y 轴对称 (x -> -x)
+            # backward: 关于 X 轴对称 (y -> -y)
             results[f"{base_name}_backward"] = (
-                make_variant(lambda leg, v: [-v[0], v[1], v[2]]),
+                make_variant(lambda leg, v: [v[0], -v[1], v[2]]),
                 "shift_quad",
                 dur,
                 entries,
             )
 
             # 左右平移：整体绕 Z 轴旋转 ±90°
+            # 约定：前进为 +Y，因此 shiftleft 应该为 -X（= rot_z(+90)）
             results[f"{base_name}_shiftleft"] = (
-                make_variant(lambda leg, v: rot_z(v, -90.0)),
+                make_variant(lambda leg, v: rot_z(v, 90.0)),
                 "shift_quad",
                 dur,
                 entries,
             )
             results[f"{base_name}_shiftright"] = (
-                make_variant(lambda leg, v: rot_z(v, 90.0)),
+                make_variant(lambda leg, v: rot_z(v, -90.0)),
                 "shift_quad",
                 dur,
                 entries,
@@ -167,14 +168,16 @@ class QuadModel(RobotPathModel):
             left_angles = {leg: (radial_deg(leg) + 90.0) % 360.0 for leg in range(self.LEG_COUNT)}
             right_angles = {leg: (radial_deg(leg) - 90.0) % 360.0 for leg in range(self.LEG_COUNT)}
 
+            # 基准 gait 的前进方向为 +Y（90°），因此要得到目标方向角 D，需要旋转 (D - 90°)
+            base_forward_deg = 90.0
             results[f"{base_name}_turnleft"] = (
-                make_variant(lambda leg, v: rot_z(v, left_angles[leg])),
+                make_variant(lambda leg, v: rot_z(v, left_angles[leg] - base_forward_deg)),
                 "shift_quad",
                 dur,
                 entries,
             )
             results[f"{base_name}_turnright"] = (
-                make_variant(lambda leg, v: rot_z(v, right_angles[leg])),
+                make_variant(lambda leg, v: rot_z(v, right_angles[leg] - base_forward_deg)),
                 "shift_quad",
                 dur,
                 entries,

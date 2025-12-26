@@ -28,12 +28,18 @@ namespace quadruped {
             pwmInited = true;
         }
 
-        // PWM 通道映射：legIndex * 3 + partIndex → 0..11
-        // 不做任何“兼容映射”，避免隐藏逻辑影响真机调试与排查。
+        // legIndex: 0=FR, 1=BR, 2=BL, 3=FL
+        // partIndex: 0=关节1, 1=关节2, 2=关节3
         int quad2pwm(int legIndex, int partIndex) {
             if (legIndex < 0 || legIndex >= 4 || partIndex < 0 || partIndex >= 3)
                 return 0;
-            return legIndex * 3 + partIndex;
+            static constexpr int kMap[4][3] = {
+                {13, 14, 15}, // FR
+                {12, 11, 10}, // BR
+                {3, 4, 5},    // BL
+                {2, 1, 0},    // FL
+            };
+            return kMap[legIndex][partIndex];
         }
     }
 
