@@ -183,11 +183,6 @@ namespace quadruped {
         int actualDuration = static_cast<int>(table.stepDuration / speed_);
         int actualSwitchDuration = static_cast<int>(config::movementSwitchDuration / speed_);
         remainTime_ = actualSwitchDuration > actualDuration ? actualSwitchDuration : actualDuration;
-
-        // 初始化当前位置为当前关键帧，避免首次插值从全零跳变
-        for (int i = 0; i < 4; ++i) {
-            position_.p[i] = table.table[index_].p[i];
-        }
     }
 
     void QuadMovement::setGaitMode(QuadGaitMode gait) {

@@ -27,7 +27,7 @@ namespace quadruped {
             forceResetAllLegTippos();
         }
 
-        // 与六足一致：standby 也走 movement table，确保初始 position_ 已初始化
+        // 与六足一致：standby 也走 movement table，统一由 Movement 插值/迭代输出足端位置
         movement_.setMode(MOVEMENT_STANDBY);
         mode_ = MOVEMENT_STANDBY;
 
