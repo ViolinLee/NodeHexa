@@ -21,6 +21,7 @@ namespace quadruped {
 
     // ---- 四足离线动作表接口声明（由 pathTool 生成并在 quad_movements.cpp 中引入定义） ----
     const QuadMovementTable& quad_trot_forwardTable();
+    const QuadMovementTable& quad_trot_forwardfastTable();
     const QuadMovementTable& quad_trot_backwardTable();
     const QuadMovementTable& quad_trot_shiftleftTable();
     const QuadMovementTable& quad_trot_shiftrightTable();
@@ -28,6 +29,7 @@ namespace quadruped {
     const QuadMovementTable& quad_trot_turnrightTable();
 
     const QuadMovementTable& quad_walk_forwardTable();
+    const QuadMovementTable& quad_walk_forwardfastTable();
     const QuadMovementTable& quad_walk_backwardTable();
     const QuadMovementTable& quad_walk_shiftleftTable();
     const QuadMovementTable& quad_walk_shiftrightTable();
@@ -35,6 +37,7 @@ namespace quadruped {
     const QuadMovementTable& quad_walk_turnrightTable();
 
     const QuadMovementTable& quad_gallop_forwardTable();
+    const QuadMovementTable& quad_gallop_forwardfastTable();
     const QuadMovementTable& quad_gallop_backwardTable();
     const QuadMovementTable& quad_gallop_shiftleftTable();
     const QuadMovementTable& quad_gallop_shiftrightTable();
@@ -42,11 +45,18 @@ namespace quadruped {
     const QuadMovementTable& quad_gallop_turnrightTable();
 
     const QuadMovementTable& quad_creep_forwardTable();
+    const QuadMovementTable& quad_creep_forwardfastTable();
     const QuadMovementTable& quad_creep_backwardTable();
     const QuadMovementTable& quad_creep_shiftleftTable();
     const QuadMovementTable& quad_creep_shiftrightTable();
     const QuadMovementTable& quad_creep_turnleftTable();
     const QuadMovementTable& quad_creep_turnrightTable();
+
+    // ---- 姿态动作（不分步态）----
+    const QuadMovementTable& quad_rotatexTable();
+    const QuadMovementTable& quad_rotateyTable();
+    const QuadMovementTable& quad_rotatezTable();
+    const QuadMovementTable& quad_twistTable();
 
 } // namespace quadruped
 

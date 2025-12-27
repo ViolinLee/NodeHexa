@@ -19,7 +19,7 @@ class QuadGait:
         self.home_y = home_y
         self.home_z = home_z
         # gait constants
-        self.amplitudeX, self.amplitudeY, self.amplitudeZ = 25, 15, 35
+        self.amplitudeX, self.amplitudeY, self.amplitudeZ = 25, 15, 25
         self.frame_time_ms = frame_time_ms
 
     def gen_path(self, gait_mode, move_status, gait_speed=0):

@@ -10,6 +10,7 @@ namespace quadruped {
 
     // 四种步态对应的多模式离线表
     extern const QuadMovementTable& quad_trot_forwardTable();
+    extern const QuadMovementTable& quad_trot_forwardfastTable();
     extern const QuadMovementTable& quad_trot_backwardTable();
     extern const QuadMovementTable& quad_trot_shiftleftTable();
     extern const QuadMovementTable& quad_trot_shiftrightTable();
@@ -17,6 +18,7 @@ namespace quadruped {
     extern const QuadMovementTable& quad_trot_turnrightTable();
 
     extern const QuadMovementTable& quad_walk_forwardTable();
+    extern const QuadMovementTable& quad_walk_forwardfastTable();
     extern const QuadMovementTable& quad_walk_backwardTable();
     extern const QuadMovementTable& quad_walk_shiftleftTable();
     extern const QuadMovementTable& quad_walk_shiftrightTable();
@@ -24,6 +26,7 @@ namespace quadruped {
     extern const QuadMovementTable& quad_walk_turnrightTable();
 
     extern const QuadMovementTable& quad_gallop_forwardTable();
+    extern const QuadMovementTable& quad_gallop_forwardfastTable();
     extern const QuadMovementTable& quad_gallop_backwardTable();
     extern const QuadMovementTable& quad_gallop_shiftleftTable();
     extern const QuadMovementTable& quad_gallop_shiftrightTable();
@@ -31,11 +34,18 @@ namespace quadruped {
     extern const QuadMovementTable& quad_gallop_turnrightTable();
 
     extern const QuadMovementTable& quad_creep_forwardTable();
+    extern const QuadMovementTable& quad_creep_forwardfastTable();
     extern const QuadMovementTable& quad_creep_backwardTable();
     extern const QuadMovementTable& quad_creep_shiftleftTable();
     extern const QuadMovementTable& quad_creep_shiftrightTable();
     extern const QuadMovementTable& quad_creep_turnleftTable();
     extern const QuadMovementTable& quad_creep_turnrightTable();
+
+    // 姿态动作：不分步态
+    extern const QuadMovementTable& quad_rotatexTable();
+    extern const QuadMovementTable& quad_rotateyTable();
+    extern const QuadMovementTable& quad_rotatezTable();
+    extern const QuadMovementTable& quad_twistTable();
 
     namespace {
 
@@ -43,6 +53,7 @@ namespace quadruped {
             MovementMode mode,
             const QuadMovementTable& standby,
             const QuadMovementTable& forward,
+            const QuadMovementTable& forwardfast,
             const QuadMovementTable& backward,
             const QuadMovementTable& shiftleft,
             const QuadMovementTable& shiftright,
@@ -53,6 +64,8 @@ namespace quadruped {
                 return standby;
             case MOVEMENT_FORWARD:
                 return forward;
+            case MOVEMENT_FORWARDFAST:
+                return forwardfast;
             case MOVEMENT_BACKWARD:
                 return backward;
             case MOVEMENT_SHIFTLEFT:
@@ -63,19 +76,37 @@ namespace quadruped {
                 return turnleft;
             case MOVEMENT_TURNRIGHT:
                 return turnright;
+            case MOVEMENT_CLIMB:
+                // 四足不实现 climb：重心不稳定，直接退化为待机更安全
+                return standby;
             default:
-                // 其他暂不支持的模式（包括 STANDBY），退化为前进步态
-                return forward;
+                // 其他暂不支持的模式，退化为待机
+                return standby;
             }
         }
 
         const QuadMovementTable& selectTable(QuadGaitMode gait, MovementMode mode) {
+            // 姿态动作：不分步态
+            switch (mode) {
+            case MOVEMENT_ROTATEX:
+                return quad_rotatexTable();
+            case MOVEMENT_ROTATEY:
+                return quad_rotateyTable();
+            case MOVEMENT_ROTATEZ:
+                return quad_rotatezTable();
+            case MOVEMENT_TWIST:
+                return quad_twistTable();
+            default:
+                break;
+            }
+
             switch (gait) {
             case QUAD_GAIT_TROT:
                 return selectByMode(
                     mode,
                     standbyTable(),
                     quad_trot_forwardTable(),
+                    quad_trot_forwardfastTable(),
                     quad_trot_backwardTable(),
                     quad_trot_shiftleftTable(),
                     quad_trot_shiftrightTable(),
@@ -86,6 +117,7 @@ namespace quadruped {
                     mode,
                     standbyTable(),
                     quad_walk_forwardTable(),
+                    quad_walk_forwardfastTable(),
                     quad_walk_backwardTable(),
                     quad_walk_shiftleftTable(),
                     quad_walk_shiftrightTable(),
@@ -96,6 +128,7 @@ namespace quadruped {
                     mode,
                     standbyTable(),
                     quad_gallop_forwardTable(),
+                    quad_gallop_forwardfastTable(),
                     quad_gallop_backwardTable(),
                     quad_gallop_shiftleftTable(),
                     quad_gallop_shiftrightTable(),
@@ -106,6 +139,7 @@ namespace quadruped {
                     mode,
                     standbyTable(),
                     quad_creep_forwardTable(),
+                    quad_creep_forwardfastTable(),
                     quad_creep_backwardTable(),
                     quad_creep_shiftleftTable(),
                     quad_creep_shiftrightTable(),
@@ -117,6 +151,7 @@ namespace quadruped {
                     mode,
                     standbyTable(),
                     quad_trot_forwardTable(),
+                    quad_trot_forwardfastTable(),
                     quad_trot_backwardTable(),
                     quad_trot_shiftleftTable(),
                     quad_trot_shiftrightTable(),
