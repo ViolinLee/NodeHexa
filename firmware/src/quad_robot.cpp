@@ -27,9 +27,13 @@ namespace quadruped {
             forceResetAllLegTippos();
         }
 
-        // 与六足一致：standby 也走 movement table，统一由 Movement 插值/迭代输出足端位置
-        movement_.setMode(MOVEMENT_STANDBY);
+        // 与六足一致：上电初始化不直接 setMode（避免 movementSwitchDuration 造成从 0->standby 的过渡插值，
+        // 进而扫过不可达点导致 IK 角度超限/大幅运动）。
+        // 直接执行一次 standby，使位置一步对齐到 standby（remainTime_=0 时 ratio=1）。
         mode_ = MOVEMENT_STANDBY;
+        if (!setting) {
+            processMovement(MOVEMENT_STANDBY, 0);
+        }
 
         LOG_INFO("QuadRobot init done.");
     }
