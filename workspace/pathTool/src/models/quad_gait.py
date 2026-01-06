@@ -79,7 +79,9 @@ class QuadGait:
 
     def trot_gait(self, move_status, gait_speed=0):
         stages = 2
-        duration = self.frame_time_ms * 20 if gait_speed == 0 else self.frame_time_ms * 40
+        duration = stages * 10 * self.frame_time_ms
+        if gait_speed != 0:
+            duration = duration * 2
         num_ticks = int(duration / self.frame_time_ms / 2)
         fr_path_quad = [[0.0, 0.0, 0.0] for _ in range(num_ticks * 2)]
 
@@ -112,7 +114,9 @@ class QuadGait:
 
     def walk_gait(self, move_status, gait_speed=0):
         stages = 4
-        duration = 4 * 4 * self.frame_time_ms if gait_speed == 0 else 1280
+        duration = stages * 10 * self.frame_time_ms
+        if gait_speed != 0:
+            duration = duration * 2
         num_ticks = int(duration / self.frame_time_ms / 4)
         fl_path_quad = [[0.0, 0.0, 0.0] for _ in range(num_ticks * 4)]
 
@@ -121,14 +125,14 @@ class QuadGait:
                 interp_id = stage_id * num_ticks + tick_cnt
                 if stage_id == 0:
                     fl_path_quad[interp_id][0] = 0.0
-                    fl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 1.5
+                    fl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 2.0
                     fl_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks)
                 elif stage_id in (1, 2, 3):
                     fl_path_quad[interp_id][0] = 0.0
                     fl_path_quad[interp_id][1] = (
                         self.amplitudeX
                         - self.amplitudeX * 2 * ((stage_id - 1) * num_ticks + tick_cnt) / (3 * num_ticks)
-                    ) * 1.5
+                    ) * 2.0
                     fl_path_quad[interp_id][2] = 0.0
 
         def right_rotate_path(path, rotation_num):
@@ -144,7 +148,9 @@ class QuadGait:
 
     def gallop_gait(self, move_status, gait_speed=0):
         stages = 4
-        duration = 4 * 4 * self.frame_time_ms if gait_speed == 0 else 1280
+        duration = stages * 10 * self.frame_time_ms
+        if gait_speed != 0:
+            duration = duration * 2
         num_ticks = int(duration / self.frame_time_ms / 4)
         fl_path_quad = [[0.0, 0.0, 0.0] for _ in range(num_ticks * 4)]
 
@@ -176,7 +182,9 @@ class QuadGait:
 
     def creep_gait(self, move_status, gait_speed=0):
         stages = 6
-        duration = 6 * 6 * self.frame_time_ms if gait_speed == 0 else 12 * 6 * self.frame_time_ms
+        duration = stages * 10 * self.frame_time_ms
+        if gait_speed != 0:
+            duration = duration * 2
         num_ticks = int(duration / self.frame_time_ms / 6)
         fr_path_quad = [[0.0, 0.0, 0.0] for _ in range(num_ticks * 6)]
         bl_path_quad = [[0.0, 0.0, 0.0] for _ in range(num_ticks * 6)]
@@ -186,42 +194,42 @@ class QuadGait:
                 interp_id = stage_id * num_ticks + tick_cnt
                 if stage_id == 0:
                     fr_path_quad[interp_id][0] = 0.0
-                    fr_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 2.0
-                    fr_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks) * 1.5
+                    fr_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 1.5
+                    fr_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks) * 1.0
                     bl_path_quad[interp_id][0] = 0.0
                     bl_path_quad[interp_id][1] = 0.0
                     bl_path_quad[interp_id][2] = 0.0
                 elif stage_id == 1:
                     fr_path_quad[interp_id][0] = 0.0
-                    fr_path_quad[interp_id][1] = self.amplitudeX * cos(pi / 2 * tick_cnt / num_ticks) * 2.0
+                    fr_path_quad[interp_id][1] = self.amplitudeX * cos(pi / 2 * tick_cnt / num_ticks) * 1.5
                     fr_path_quad[interp_id][2] = 0.0
                     bl_path_quad[interp_id][0] = 0.0
-                    bl_path_quad[interp_id][1] = -self.amplitudeX * sin(pi / 2 * tick_cnt / num_ticks) * 2.0
+                    bl_path_quad[interp_id][1] = -self.amplitudeX * sin(pi / 2 * tick_cnt / num_ticks) * 1.5
                     bl_path_quad[interp_id][2] = 0.0
                 elif stage_id == 2:
                     fr_path_quad[interp_id][0] = 0.0
                     fr_path_quad[interp_id][1] = 0.0
                     fr_path_quad[interp_id][2] = 0.0
                     bl_path_quad[interp_id][0] = 0.0
-                    bl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 2.0
-                    bl_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks) * 1.5
+                    bl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 1.5
+                    bl_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks) * 1.0
                 elif stage_id == 3:
                     fr_path_quad[interp_id][0] = 0.0
                     fr_path_quad[interp_id][1] = 0.0
                     fr_path_quad[interp_id][2] = 0.0
                     bl_path_quad[interp_id][0] = 0.0
-                    bl_path_quad[interp_id][1] = self.amplitudeX * 2.0
+                    bl_path_quad[interp_id][1] = self.amplitudeX * 1.5
                     bl_path_quad[interp_id][2] = 0.0
                 elif stage_id == 4:
                     fr_path_quad[interp_id][0] = 0.0
-                    fr_path_quad[interp_id][1] = -self.amplitudeX * sin(pi / 2 * tick_cnt / num_ticks) * 2.0
+                    fr_path_quad[interp_id][1] = -self.amplitudeX * sin(pi / 2 * tick_cnt / num_ticks) * 1.5
                     fr_path_quad[interp_id][2] = 0.0
                     bl_path_quad[interp_id][0] = 0.0
-                    bl_path_quad[interp_id][1] = self.amplitudeX * cos(pi / 2 * tick_cnt / num_ticks) * 2.0
+                    bl_path_quad[interp_id][1] = self.amplitudeX * cos(pi / 2 * tick_cnt / num_ticks) * 1.5
                     bl_path_quad[interp_id][2] = 0.0
                 elif stage_id == 5:
                     fr_path_quad[interp_id][0] = 0.0
-                    fr_path_quad[interp_id][1] = -self.amplitudeX * 2.0
+                    fr_path_quad[interp_id][1] = -self.amplitudeX * 1.5
                     fr_path_quad[interp_id][2] = 0.0
                     bl_path_quad[interp_id][0] = 0.0
                     bl_path_quad[interp_id][1] = 0.0

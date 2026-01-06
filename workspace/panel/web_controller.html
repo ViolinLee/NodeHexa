@@ -154,6 +154,47 @@
       background-color: #0b7dda;
     }
 
+    /* 步态控制区域样式（单按钮：点击循环切换） */
+    .gait-control {
+      max-width: 500px;
+      margin: 10px auto;
+      padding: 10px;
+      background-color: #f5f5f5;
+      border-radius: 15px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      display: block;
+    }
+    .gait-label {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .gait-toggle-btn {
+      display: inline-block;
+      width: 260px;
+      height: 50px;
+      line-height: 50px;
+      font-size: 18px;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      outline: none;
+      color: #fff;
+      background-color: #28a745;
+      border: none;
+      border-radius: 10px;
+      box-shadow: 0 9px #999;
+      user-select: none;
+    }
+    .gait-toggle-btn:hover { background-color: #218838; }
+    .gait-toggle-btn:active {
+      background-color: #218838;
+      box-shadow: 0 5px #666;
+      transform: translateY(4px);
+    }
+
     /* 页脚署名样式 */
     .footer {
       margin-top: 40px;
@@ -373,6 +414,14 @@
       <button class="speed-btn" data-speed="1.0" data-zh="快速" data-en="Fastest">快速</button>
     </div>
   </div>
+
+  <!-- 步态控制区域（单按钮交互：点击循环切换；六足固定默认步态） -->
+  <div class="gait-control" id="gaitControl">
+    <div class="gait-label" id="gaitLabel">步态模式</div>
+    <center>
+      <button class="gait-toggle-btn" id="gaitToggleBtn" type="button">步态：默认</button>
+    </center>
+  </div>
   
   <div class="grid-container">
     <button class="button button-posture grid-item-1" onclick="sendCommand(9)" data-zh="旋转X" data-en="RotateX">旋转X</button>
@@ -506,6 +555,49 @@
       }
     }
 
+    function sendGaitMode(gaitMode) {
+      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
+        websocketCarInput.send(JSON.stringify({gaitMode: parseInt(gaitMode, 10)}));
+        console.log('Sent gaitMode: ' + gaitMode);
+      } else {
+        console.log('WebSocket is not open. Cannot send gaitMode.');
+      }
+    }
+
+    // 步态控制（四足: 0/1/2/3 循环；六足: 仅 0）
+    let robotType = 'hexa';
+    let supportedGaits = [0];
+    let currentGait = 0; // 默认 TROT/默认步态
+    const gaitNames = {
+      0: { zh: '小跑', en: 'Trot' },
+      1: { zh: '慢走', en: 'Walk' },
+      2: { zh: '疾驰', en: 'Gallop' },
+      3: { zh: '匍匐', en: 'Creep' }
+    };
+
+    function getGaitPrefix() {
+      return currentLang === 'zh' ? '步态：' : 'Gait: ';
+    }
+
+    function getDefaultGaitText() {
+      return currentLang === 'zh' ? '默认' : 'Default';
+    }
+
+    function formatGaitButtonText(gaitMode) {
+      if (robotType !== 'quad') {
+        // 六足：只有一个步态，不需要切换文字
+        return getGaitPrefix() + getDefaultGaitText();
+      }
+      const name = gaitNames[gaitMode] ? gaitNames[gaitMode][currentLang] : gaitNames[0][currentLang];
+      return getGaitPrefix() + name;
+    }
+
+    function renderGaitButton() {
+      const btn = document.getElementById('gaitToggleBtn');
+      if (!btn) return;
+      btn.textContent = formatGaitButtonText(currentGait);
+    }
+
     function initSpeedControl() {
       const speedButtons = document.querySelectorAll('.speed-btn');
       
@@ -530,6 +622,47 @@
       });
     }
 
+    function initGaitControl() {
+      const btn = document.getElementById('gaitToggleBtn');
+      if (!btn) return;
+
+      // 恢复本地缓存（仅四足生效）
+      try {
+        const saved = window.localStorage.getItem('gaitMode');
+        if (saved !== null && saved !== undefined && saved !== '') {
+          const v = parseInt(saved, 10);
+          if (!Number.isNaN(v) && v >= 0 && v <= 3) currentGait = v;
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      renderGaitButton();
+
+      btn.addEventListener('click', function() {
+        // 六足：只有一个步态，不切换文本；但允许点击发送一次 gaitMode=0（固件会忽略/默认）
+        if (!supportedGaits || supportedGaits.length <= 1 || robotType !== 'quad') {
+          currentGait = 0;
+          renderGaitButton();
+          sendGaitMode(0);
+          return;
+        }
+
+        const idx = supportedGaits.indexOf(currentGait);
+        const next = supportedGaits[(idx >= 0 ? idx + 1 : 0) % supportedGaits.length];
+        currentGait = next;
+
+        try {
+          window.localStorage.setItem('gaitMode', String(currentGait));
+        } catch (_) {
+          // ignore
+        }
+
+        renderGaitButton();
+        sendGaitMode(currentGait);
+      });
+    }
+
     // 语言切换功能
     let currentLang = 'zh'; // 默认中文
 
@@ -537,6 +670,7 @@
       pageTitle: { zh: '机器人控制', en: 'Robot Control' },
       langButton: { zh: 'English', en: '中文' },
       speedLabel: { zh: '运动速度控制', en: 'Movement Speed Control' },
+      gaitLabel: { zh: '步态模式', en: 'Gait Mode' },
       footerTitle: { zh: '开源项目 · NodeHexa 机器人', en: 'Open Source · NodeHexa Robot' },
       bilibiliText: { zh: 'B站: 智造师_RoboticsCV', en: 'Bilibili: 智造师_RoboticsCV' },
       githubText: { zh: 'GitHub: ViolinLee', en: 'GitHub: ViolinLee' },
@@ -564,13 +698,18 @@
       
       // 更新速度控制区域文本
       document.querySelector('.speed-label').textContent = langTexts.speedLabel[currentLang];
+
+      // 更新步态控制区域文本
+      const gaitLabelEl = document.getElementById('gaitLabel');
+      if (gaitLabelEl) gaitLabelEl.textContent = langTexts.gaitLabel[currentLang];
+      renderGaitButton();
       
       // 更新速度档位按钮文本
       const speedButtons = document.querySelectorAll('.speed-btn[data-zh][data-en]');
       speedButtons.forEach(button => {
         button.textContent = button.getAttribute('data-' + currentLang);
       });
-      
+
       // 更新所有按钮文本
       const buttons = document.querySelectorAll('.button[data-zh][data-en]');
       buttons.forEach(button => {
@@ -613,6 +752,15 @@
         const resp = await fetch('/api/caps', { cache: 'no-store' });
         const data = await resp.json();
         const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
+        robotType = type;
+        supportedGaits = (type === 'quad') ? [0, 1, 2, 3] : [0];
+        if (type !== 'quad') {
+          currentGait = 0;
+        } else {
+          // 四足：确保 currentGait 在支持范围内
+          if (supportedGaits.indexOf(currentGait) < 0) currentGait = 0;
+        }
+        renderGaitButton();
         if (type === 'quad') {
           langTexts.footerTitle = { zh: '开源项目 · NodeQuadMini 四足机器人', en: 'Open Source · NodeQuadMini Quadruped Robot' };
         } else {
@@ -782,6 +930,7 @@
     window.onload = async function() {
       initRobotInputWebSocket();
       initSpeedControl();
+      initGaitControl();
       // 默认显示中文，无需调用toggleLanguage
       updateModalTexts();
       await loadCapsAndUpdateFooter();

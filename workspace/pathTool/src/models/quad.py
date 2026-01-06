@@ -22,7 +22,6 @@ class QuadModel(RobotPathModel):
 
         # trig constants（与固件保持一致）
         SIN30, COS30 = 0.5, 0.866
-        SIN45, COS45 = 0.7071, 0.7071
         SIN15, COS15 = 0.2588, 0.9659
 
         standby_z_pos = cfg["kLegJoint3ToTip"] * COS15 - cfg["kLegJoint2ToJoint3"] * SIN30
@@ -32,10 +31,14 @@ class QuadModel(RobotPathModel):
             + cfg["kLegJoint2ToJoint3"] * COS30
             + cfg["kLegJoint3ToTip"] * SIN15
         )
-        reach_xy = reach * COS45
+        # 四足站立足端外展角：与固件同源（见 firmware/include/config.h）
+        # 旧实现默认近似 45°：reach_xy = reach * cos45，同时作用于 X/Y（x/y 对称）
+        # 新实现：拆分为 reach_x / reach_y（由 config.h 提供的 sin/cos 决定）
+        reach_x = reach * cfg["kQuadStanceCos"]
+        reach_y = reach * cfg["kQuadStanceSin"]
 
-        offset_x = cfg["kQuadLegMountOtherX"] + reach_xy
-        offset_y = cfg["kQuadLegMountOtherY"] + reach_xy
+        offset_x = cfg["kQuadLegMountOtherX"] + reach_x
+        offset_y = cfg["kQuadLegMountOtherY"] + reach_y
         standby_z = -standby_z_pos
 
         # 坐标系与六足一致：X 向右为正，Y 向前为正
@@ -57,6 +60,9 @@ class QuadModel(RobotPathModel):
             "kLegJoint3ToTip": 89.07,
             "kQuadLegMountOtherX": 25.0,
             "kQuadLegMountOtherY": 45.0,
+            "kQuadStanceAngleDeg": 45.0,
+            "kQuadStanceCos": 0.7071,
+            "kQuadStanceSin": 0.7071,
         }
 
         try:
@@ -225,6 +231,40 @@ class QuadModel(RobotPathModel):
             half = (start_idx + len(frames_fwd) // 2) % max(1, len(frames_fwd))
             entries = [start_idx, half] if len(frames_fwd) >= 2 else [start_idx]
 
+            # ---- 波浪/非对称步态的方向修正（最小改动版）----
+            # 现状：backward/shiftleft/shiftright 仅做几何变换（y翻转/旋转），但腿相位(=腿序)保持不变，
+            # 对 walk/creep 这类“波浪传播”步态，某些方向会明显变差（真机后退/侧移不顺）。
+            #
+            # 方案：只对 phase_sensitive_gaits 的非前进方向，额外做一次“腿相位映射”（等价于换腿序）：
+            # - backward：相位传播方向翻转（前后互换） => FR<->BR, FL<->BL
+            # - shiftleft/shiftright：将传播方向相对前进方向旋转 ±90°（离散近似）
+            #
+            # 注：腿索引与固件一致：0:FR, 1:BR, 2:BL, 3:FL
+            phase_sensitive_gaits = {QuadGait.GAIT_WALK, QuadGait.GAIT_CREEP}
+
+            # old_leg -> new_leg（把 old_leg 的相位/轨迹分配给 new_leg）
+            perm_front_back = {0: 1, 1: 0, 2: 3, 3: 2}
+            perm_rotate_cw = {0: 1, 1: 2, 2: 3, 3: 0}   # 传播方向顺时针旋转90°
+            perm_rotate_ccw = {0: 3, 3: 2, 2: 1, 1: 0}  # 传播方向逆时针旋转90°
+
+            def remap_legs_by_old_to_new(data_in, old_to_new):
+                out_data = [[[0.0, 0.0, 0.0] for _ in range(len(frames_fwd))] for _ in range(self.LEG_COUNT)]
+                for old_leg in range(self.LEG_COUNT):
+                    new_leg = old_to_new.get(old_leg, old_leg)
+                    out_data[new_leg] = data_in[old_leg]
+                return out_data
+
+            def compute_entries_for_data(data_leg0):
+                s = choose_start_index_from_fr(data_leg0)
+                if s < 0:
+                    s = int(len(frames_fwd) / max(1, (2 * stages)))
+                if s < 0:
+                    s = 0
+                if s >= len(frames_fwd):
+                    s = 0
+                h = (s + len(frames_fwd) // 2) % max(1, len(frames_fwd))
+                return [s, h] if len(frames_fwd) >= 2 else [s]
+
             def make_variant(transform_fn):
                 data_var = [[[0.0, 0.0, 0.0] for _ in range(len(frames_fwd))] for _ in range(self.LEG_COUNT)]
                 for leg in range(self.LEG_COUNT):
@@ -257,26 +297,43 @@ class QuadModel(RobotPathModel):
             results[f"{base_name}_forwardfast"] = (data_fast, "shift_quad", dur, entries_fast)
 
             # backward: 关于 X 轴对称 (y -> -y)
+            data_bwd = make_variant(lambda leg, v: [v[0], -v[1], v[2]])
+            entries_bwd = entries
+            if gait_mode in phase_sensitive_gaits:
+                data_bwd = remap_legs_by_old_to_new(data_bwd, perm_front_back)
+                entries_bwd = compute_entries_for_data(data_bwd[0])
             results[f"{base_name}_backward"] = (
-                make_variant(lambda leg, v: [v[0], -v[1], v[2]]),
+                data_bwd,
                 "shift_quad",
                 dur,
-                entries,
+                entries_bwd,
             )
 
             # 左右平移：整体绕 Z 轴旋转 ±90°
             # 约定：前进为 +Y，因此 shiftleft 应该为 -X（= rot_z(+90)）
+            data_sl = make_variant(lambda leg, v: rot_z(v, 90.0))
+            entries_sl = entries
+            if gait_mode in phase_sensitive_gaits:
+                # shiftleft = 方向从 +Y 旋转到 -X（+90°），传播方向做离散同步旋转
+                data_sl = remap_legs_by_old_to_new(data_sl, perm_rotate_ccw)
+                entries_sl = compute_entries_for_data(data_sl[0])
             results[f"{base_name}_shiftleft"] = (
-                make_variant(lambda leg, v: rot_z(v, 90.0)),
+                data_sl,
                 "shift_quad",
                 dur,
-                entries,
+                entries_sl,
             )
+            data_sr = make_variant(lambda leg, v: rot_z(v, -90.0))
+            entries_sr = entries
+            if gait_mode in phase_sensitive_gaits:
+                # shiftright = 方向从 +Y 旋转到 +X（-90°）
+                data_sr = remap_legs_by_old_to_new(data_sr, perm_rotate_cw)
+                entries_sr = compute_entries_for_data(data_sr[0])
             results[f"{base_name}_shiftright"] = (
-                make_variant(lambda leg, v: rot_z(v, -90.0)),
+                data_sr,
                 "shift_quad",
                 dur,
-                entries,
+                entries_sr,
             )
 
             # 左右转向：对每条腿施加不同旋转角度（参考 gait.py: formated_path_status）
