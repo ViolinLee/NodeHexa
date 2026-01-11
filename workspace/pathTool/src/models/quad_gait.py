@@ -125,14 +125,14 @@ class QuadGait:
                 interp_id = stage_id * num_ticks + tick_cnt
                 if stage_id == 0:
                     fl_path_quad[interp_id][0] = 0.0
-                    fl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 2.0
+                    fl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 1.5
                     fl_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks)
                 elif stage_id in (1, 2, 3):
                     fl_path_quad[interp_id][0] = 0.0
                     fl_path_quad[interp_id][1] = (
                         self.amplitudeX
                         - self.amplitudeX * 2 * ((stage_id - 1) * num_ticks + tick_cnt) / (3 * num_ticks)
-                    ) * 2.0
+                    ) * 1.5
                     fl_path_quad[interp_id][2] = 0.0
 
         def right_rotate_path(path, rotation_num):
@@ -159,14 +159,14 @@ class QuadGait:
                 interp_id = stage_id * num_ticks + tick_cnt
                 if stage_id == 0:
                     fl_path_quad[interp_id][0] = 0.0
-                    fl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 1.5
+                    fl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 1.2
                     fl_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks)
                 elif stage_id in (1, 2, 3):
                     fl_path_quad[interp_id][0] = 0.0
                     fl_path_quad[interp_id][1] = (
                         self.amplitudeX
                         - self.amplitudeX * 2 * ((stage_id - 1) * num_ticks + tick_cnt) / (3 * num_ticks)
-                    ) * 1.5
+                    ) * 1.2
                     fl_path_quad[interp_id][2] = 0.0
 
         def right_rotate_path(path, rotation_num):

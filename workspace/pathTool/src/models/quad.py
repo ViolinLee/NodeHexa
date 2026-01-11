@@ -22,14 +22,15 @@ class QuadModel(RobotPathModel):
 
         # trig constants（与固件保持一致）
         SIN30, COS30 = 0.5, 0.866
-        SIN15, COS15 = 0.2588, 0.9659
+        # 第三关节默认角度：10°
+        SIN10, COS10 = 0.1736, 0.9848
 
-        standby_z_pos = cfg["kLegJoint3ToTip"] * COS15 - cfg["kLegJoint2ToJoint3"] * SIN30
+        standby_z_pos = cfg["kLegJoint3ToTip"] * COS10 - cfg["kLegJoint2ToJoint3"] * SIN30
         reach = (
             cfg["kLegRootToJoint1"]
             + cfg["kLegJoint1ToJoint2"]
             + cfg["kLegJoint2ToJoint3"] * COS30
-            + cfg["kLegJoint3ToTip"] * SIN15
+            + cfg["kLegJoint3ToTip"] * SIN10
         )
         # 四足站立足端外展角：与固件同源（见 firmware/include/config.h）
         # 旧实现默认近似 45°：reach_xy = reach * cos45，同时作用于 X/Y（x/y 对称）
@@ -196,20 +197,60 @@ class QuadModel(RobotPathModel):
 
         def gen_posture_twist(max_deg: float, steps: int = 20) -> Tuple[List[List[List[float]]], int, List[int]]:
             """
-            扭腰（twist）：前后腿绕 Z 轴相反方向旋转（前 +deg，后 -deg）
-            同样保证 t=0 为 0 角度，避免跳变。
+            扭腰（twist）：对齐六足 `path/twist.py` 的效果，使用“刚体姿态变换”的序列（所有腿同一变换）。
+
+            说明（关键）：
+            - 之前实现为“前后腿 Z 轴相反方向旋转”，这不是刚体变换，会引入净平移，真机表现为足端在地面上慢慢挪动。
+            - 六足 twist 是以矩阵对所有腿做统一姿态变换（机身姿态变化），更接近“足端不动、机身扭/摆”。
+
+            这里不用 numpy，直接用点旋转函数实现与 `m * Rz(a) * Rx(b)` 等价的点变换：
+              p' = Rx(raise) ( Rz(a) ( Rx(b) p ) )
             """
+            assert (steps % 4) == 0
+
             base = [[self.home_x[i], self.home_y[i], self.home_z[i]] for i in range(self.LEG_COUNT)]
             frames: List[List[List[float]]] = []
-            for i in range(steps):
-                ang = max_deg * sin(2.0 * pi * i / steps)
-                frame: List[List[float]] = []
-                for p in base:
-                    # y>0 视为“前”，y<0 视为“后”
-                    sign = 1.0 if p[1] >= 0 else -1.0
-                    frame.append(rot_point_z(p, sign * ang))
-                frames.append(frame)
-            return frames, 50, [0]
+
+            quarter = int(steps / 4)
+
+            # 对齐 `path/twist.py` 的参数风格：
+            # - Z 轴旋转幅度：max_deg（对应 twist_x_angle）
+            # - X 轴摆动幅度：按 12/20 比例缩放（对应 twise_y_angle=12, twist_x_angle=20）
+            raise_deg = 3.0
+            max_x_deg = float(max_deg) * (12.0 / 20.0)
+            step_z_deg = float(max_deg) / quarter
+            step_x_deg = float(max_x_deg) / quarter
+
+            def apply_twist(p: List[float], z_deg: float, x_deg: float) -> List[float]:
+                # p' = Rx(raise) ( Rz(z) ( Rx(x) p ) )
+                p1 = rot_point_x(p, x_deg)
+                p2 = rot_point_z(p1, z_deg)
+                p3 = rot_point_x(p2, raise_deg)
+                return p3
+
+            # 4 段分段线性：与 `path/twist.py` 结构一致（避免突兀跳变，且能对齐 entries 语义）
+            for i in range(quarter):
+                z = i * step_z_deg
+                x = i * step_x_deg
+                frames.append([apply_twist(p, z, x) for p in base])
+
+            for i in range(quarter):
+                z = (quarter - i) * step_z_deg
+                x = (quarter - i) * step_x_deg
+                frames.append([apply_twist(p, z, x) for p in base])
+
+            for i in range(quarter):
+                z = -i * step_z_deg
+                x = i * step_x_deg
+                frames.append([apply_twist(p, z, x) for p in base])
+
+            for i in range(quarter):
+                z = (-quarter + i) * step_z_deg
+                x = (quarter - i) * step_x_deg
+                frames.append([apply_twist(p, z, x) for p in base])
+
+            # entries 对齐六足：0 与 半程（20 steps => 10）
+            return frames, 50, [0, quarter * 2]
 
         for base_name, gait_mode in gait_defs:
             # 先生成“前进方向”的世界坐标轨迹
@@ -364,9 +405,9 @@ class QuadModel(RobotPathModel):
 
         # ---- 姿态动作：不分步态（参考六足的 rotate/twist，但实现保持“起点为 0 角度”更平滑） ----
         # 注：climb 四足不实现（重心不稳定），固件侧会做降级处理
-        rx_frames, rx_dur, rx_entries = gen_posture_global_rotation("x", max_deg=10.0, steps=20)
-        ry_frames, ry_dur, ry_entries = gen_posture_global_rotation("y", max_deg=10.0, steps=20)
-        rz_frames, rz_dur, rz_entries = gen_posture_global_rotation("z", max_deg=8.0, steps=20)
+        rx_frames, rx_dur, rx_entries = gen_posture_global_rotation("x", max_deg=15.0, steps=20)
+        ry_frames, ry_dur, ry_entries = gen_posture_global_rotation("y", max_deg=15.0, steps=20)
+        rz_frames, rz_dur, rz_entries = gen_posture_global_rotation("z", max_deg=15.0, steps=20)
         tw_frames, tw_dur, tw_entries = gen_posture_twist(max_deg=10.0, steps=20)
 
         results["quad_rotatex"] = (self._generate_shift_data_from_world(rx_frames), "shift_quad", rx_dur, rx_entries)

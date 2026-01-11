@@ -165,6 +165,15 @@ namespace quadruped {
     }
 
     void QuadRobot::setGaitMode(int gaitMode) {
+        // 约束：仅允许在待机模式切换步态，避免运动中切换导致过渡畸形
+        if (mode_ != MOVEMENT_STANDBY) {
+            char buffer[96];
+            snprintf(buffer, sizeof(buffer),
+                     "[Quad] 忽略步态切换(%d)：仅待机模式允许切换步态", gaitMode);
+            LOG_INFO(buffer);
+            return;
+        }
+
         QuadGaitMode newGait = QUAD_GAIT_TROT;
         switch (gaitMode) {
         case 1:

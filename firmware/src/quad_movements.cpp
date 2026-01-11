@@ -14,13 +14,14 @@ using namespace hexapod::config;
 
 #define SIN30   0.5
 #define COS30   0.866
-#define SIN15   0.2588
-#define COS15   0.9659
+// 第三关节默认角度：10°
+#define SIN10   0.1736
+#define COS10   0.9848
 
 // 站立高度（正值），世界坐标下 Z 取负
-#define Q_STANDBY_Z_POS (kLegJoint3ToTip*COS15-kLegJoint2ToJoint3*SIN30)
+#define Q_STANDBY_Z_POS (kLegJoint3ToTip*COS10-kLegJoint2ToJoint3*SIN30)
 // 站立时足端在“本地坐标系”下的水平伸展长度
-#define Q_REACH (kLegRootToJoint1+kLegJoint1ToJoint2+(kLegJoint2ToJoint3*COS30)+kLegJoint3ToTip*SIN15)
+#define Q_REACH (kLegRootToJoint1+kLegJoint1ToJoint2+(kLegJoint2ToJoint3*COS30)+kLegJoint3ToTip*SIN10)
 // 四足站立足端外展角：由 config.h 提供（保证与 pathTool 同源）
 // 通过调节该角度可改变站立足端在 X/Y 的展开比例，从而影响稳定裕量分布。
 #define Q_REACH_X (Q_REACH * kQuadStanceCos)

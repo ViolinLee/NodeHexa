@@ -648,6 +648,10 @@
           return;
         }
 
+        // 约束：固件侧仅允许在待机模式切换步态
+        // 为提升体验：点击步态按钮时，先下发待机，再下发 gaitMode
+        sendCommand(0);
+
         const idx = supportedGaits.indexOf(currentGait);
         const next = supportedGaits[(idx >= 0 ? idx + 1 : 0) % supportedGaits.length];
         currentGait = next;
@@ -659,7 +663,7 @@
         }
 
         renderGaitButton();
-        sendGaitMode(currentGait);
+        setTimeout(() => sendGaitMode(currentGait), 180);
       });
     }
 
