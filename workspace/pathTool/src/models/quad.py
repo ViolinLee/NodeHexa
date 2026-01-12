@@ -306,12 +306,15 @@ class QuadModel(RobotPathModel):
                 h = (s + len(frames_fwd) // 2) % max(1, len(frames_fwd))
                 return [s, h] if len(frames_fwd) >= 2 else [s]
 
-            def make_variant(transform_fn):
+            def make_variant_from(data_src, transform_fn):
                 data_var = [[[0.0, 0.0, 0.0] for _ in range(len(frames_fwd))] for _ in range(self.LEG_COUNT)]
                 for leg in range(self.LEG_COUNT):
                     for i in range(len(frames_fwd)):
-                        data_var[leg][i] = transform_fn(leg, data_fwd[leg][i])
+                        data_var[leg][i] = transform_fn(leg, data_src[leg][i])
                 return data_var
+
+            def make_variant(transform_fn):
+                return make_variant_from(data_fwd, transform_fn)
 
             # forward: 直接使用基准轨迹
             results[f"{base_name}_forward"] = (data_fwd, "shift_quad", dur, entries)
@@ -396,12 +399,14 @@ class QuadModel(RobotPathModel):
                 dur,
                 entries,
             )
-            results[f"{base_name}_turnright"] = (
-                make_variant(lambda leg, v: rot_z(v, right_angles[leg] - base_forward_deg)),
-                "shift_quad",
-                dur,
-                entries,
-            )
+            # turnright：对 phase-sensitive 步态（walk/creep），复用 backward 的“相位翻转/腿序映射”，
+            # 让左右转向的抬腿序不同（否则 turnleft/turnright 只是几何镜像，腿相位完全一致）。
+            base_backward_deg = 270.0  # -Y
+            data_tr = make_variant_from(data_bwd, lambda leg, v: rot_z(v, right_angles[leg] - base_backward_deg))
+            entries_tr = entries
+            if gait_mode in phase_sensitive_gaits:
+                entries_tr = compute_entries_for_data(data_tr[0])
+            results[f"{base_name}_turnright"] = (data_tr, "shift_quad", dur, entries_tr)
 
         # ---- 姿态动作：不分步态（参考六足的 rotate/twist，但实现保持“起点为 0 角度”更平滑） ----
         # 注：climb 四足不实现（重心不稳定），固件侧会做降级处理
