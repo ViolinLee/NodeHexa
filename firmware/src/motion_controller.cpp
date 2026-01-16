@@ -62,7 +62,9 @@ void MotionController::clear(const char* reason) {
     }
     queue_.clear();
     if (active_.inUse && active_.restoreSpeed) {
-        Hexapod.setMovementSpeed(active_.previousSpeed);
+        if (Robot) {
+            Robot->setMovementSpeed(active_.previousSpeed);
+        }
     }
     active_ = ActiveState{};
     if (reason) {
@@ -130,9 +132,11 @@ void MotionController::startAction(const Action& action) {
 
     active_.restoreSpeed = false;
     if (action.speed >= hexapod::config::minSpeed && action.speed <= hexapod::config::maxSpeed) {
-        active_.previousSpeed = Hexapod.getMovementSpeed();
-        Hexapod.setMovementSpeed(action.speed);
-        active_.restoreSpeed = true;
+        if (Robot) {
+            active_.previousSpeed = Robot->getMovementSpeed();
+            Robot->setMovementSpeed(action.speed);
+            active_.restoreSpeed = true;
+        }
     }
 
     char buffer[120];
@@ -147,7 +151,9 @@ void MotionController::finishAction() {
     }
 
     if (active_.restoreSpeed) {
-        Hexapod.setMovementSpeed(active_.previousSpeed);
+        if (Robot) {
+            Robot->setMovementSpeed(active_.previousSpeed);
+        }
     }
 
     uint32_t sequenceId = active_.action.sequenceId;
@@ -182,12 +188,10 @@ float MotionController::convertToCycles(const Action& action) const {
 }
 
 float MotionController::calculateCycleDurationMs(const Action& action) const {
-    float speed = Hexapod.getMovementSpeed();
-    if (speed < hexapod::config::minSpeed) {
-        speed = hexapod::config::minSpeed;
+    if (!Robot) {
+        return 0.0f;
     }
-    const auto& table = getMovementTable(action.mode);
-    return (static_cast<float>(table.length) * (static_cast<float>(table.stepDuration) / speed));
+    return Robot->getMovementCycleDurationMs(action.mode);
 }
 
 bool MotionController::ActionQueue::push(const Action& action) {

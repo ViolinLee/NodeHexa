@@ -4,14 +4,24 @@ namespace hexapod {
 
     namespace config {
         // all below definition use unit: mm
-        const float kLegMountLeftRightX = 29.87;
-        const float kLegMountOtherX = 22.41;
-        const float kLegMountOtherY = 55.41;
+        const float kLegMountLeftRightX = 34.7;
+        const float kLegMountOtherX = 25;
+        const float kLegMountOtherY = 58;
+
+        // ---- quadruped mounting (NodeQuadMini) ----
+        // 四足没有 left/right 专用安装点，四条腿统一用 (±X, ±Y) 的安装点
+        const float kQuadLegMountOtherX = 25.0;
+        const float kQuadLegMountOtherY = 45.0;
+
+        // 可通过调小该角度（如 30°）增大 X 展开、减小 Y 展开，从而缩小前后/左右稳定裕量差异。
+        const float kQuadStanceAngleDeg = 30.0;
+        const float kQuadStanceCos = 0.866; // cos(30°)
+        const float kQuadStanceSin = 0.5; // sin(30°)
         
-        const float kLegRootToJoint1 = 20.75;
-        const float kLegJoint1ToJoint2 = 28.0;
-        const float kLegJoint2ToJoint3 = 42.6;
-        const float kLegJoint3ToTip = 89.07;
+        const float kLegRootToJoint1 = 19.4;
+        const float kLegJoint1ToJoint2 = 32;
+        const float kLegJoint2ToJoint3 = 43.8;
+        const float kLegJoint3ToTip = 90.05;
 
 
         // timing setting. unit: ms

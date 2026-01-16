@@ -4,10 +4,16 @@
 #include "hexapod.h"
 #include "servo.h"
 #include "debug.h"
+#include "robot.h"
 
 namespace hexapod {
 
     HexapodClass Hexapod;
+
+#ifndef ROBOT_MODEL_NODEQUADMINI
+    // 默认机型：六足 Hexapod
+    RobotBase* Robot = &Hexapod;
+#endif
 
     HexapodClass::HexapodClass(): 
         legs_{{0}, {1}, {2}, {3}, {4}, {5}}, 
@@ -70,6 +76,15 @@ namespace hexapod {
 
     float HexapodClass::getMovementSpeed() const {
         return movement_.getSpeed();
+    }
+
+    float HexapodClass::getMovementCycleDurationMs(MovementMode mode) const {
+        float speed = getMovementSpeed();
+        if (speed < config::minSpeed) {
+            speed = config::minSpeed;
+        }
+        const auto& table = getMovementTable(mode);
+        return static_cast<float>(table.length) * (static_cast<float>(table.stepDuration) / speed);
     }
 
     void HexapodClass::calibrationSave() {

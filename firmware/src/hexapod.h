@@ -4,10 +4,11 @@
 #include "leg.h"
 #include "calibration.h"
 #include "config.h"
+#include "robot.h"
 
 namespace hexapod {
 
-    class HexapodClass {
+    class HexapodClass : public RobotBase {
     public:
         HexapodClass();
 
@@ -23,6 +24,7 @@ namespace hexapod {
         void setMovementSpeed(float speed);
         void setMovementSpeedLevel(SpeedLevel level);
         float getMovementSpeed() const;
+        float getMovementCycleDurationMs(MovementMode mode) const override;
 
         // Calibration API
 

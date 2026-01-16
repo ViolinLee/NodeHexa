@@ -2,21 +2,14 @@
 <html>
 <head>
   <style>
-    .title-bar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      margin-bottom: 8px;
-    }
     .title {
       text-align: center;
-      margin: 0;
-      font-size: 28px;
-      font-weight: bold;
+      position: relative;
     }
-    .lang-switch, .settings-btn, .planner-btn {
+    .lang-switch, .settings-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
       background-color: #1E90FF;
       color: white;
       border: none;
@@ -27,77 +20,18 @@
       box-shadow: 0 4px #999;
       transition: all 0.3s;
     }
-    .lang-switch:hover, .settings-btn:hover, .planner-btn:hover {
+    .lang-switch {
+      right: 20px;
+    }
+    .settings-btn {
+      left: 20px;
+    }
+    .lang-switch:hover, .settings-btn:hover {
       background-color: #0b7dda;
     }
-    .lang-switch:active, .settings-btn:active, .planner-btn:active {
+    .lang-switch:active, .settings-btn:active {
       box-shadow: 0 2px #666;
-      transform: translateY(1px);
-    }
-    .planner-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .mode-toggle {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: #f2f6ff;
-      border-radius: 20px;
-      padding: 6px 12px;
-      box-shadow: inset 0 0 0 1px rgba(30,144,255,0.3);
-    }
-    .mode-toggle span {
-      font-size: 12px;
-      color: #333;
-      font-weight: 600;
-    }
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 44px;
-      height: 22px;
-    }
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-    .slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #ccc;
-      transition: .3s;
-      border-radius: 22px;
-    }
-    .slider:before {
-      position: absolute;
-      content: "";
-      height: 18px;
-      width: 18px;
-      left: 2px;
-      bottom: 2px;
-      background-color: white;
-      transition: .3s;
-      border-radius: 50%;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
-    }
-    input:checked + .slider {
-      background-color: #1E90FF;
-    }
-    input:checked + .slider:before {
-      transform: translateX(22px);
-    }
-    .mode-hint {
-      text-align: center;
-      color: #555;
-      font-size: 14px;
-      margin-bottom: 8px;
+      transform: translateY(-48%);
     }
     .button { 
       display: inline-block;
@@ -218,6 +152,47 @@
     }
     .speed-btn.active:hover {
       background-color: #0b7dda;
+    }
+
+    /* 步态控制区域样式（单按钮：点击循环切换） */
+    .gait-control {
+      max-width: 500px;
+      margin: 10px auto;
+      padding: 10px;
+      background-color: #f5f5f5;
+      border-radius: 15px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      display: block;
+    }
+    .gait-label {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .gait-toggle-btn {
+      display: inline-block;
+      width: 260px;
+      height: 50px;
+      line-height: 50px;
+      font-size: 18px;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      outline: none;
+      color: #fff;
+      background-color: #28a745;
+      border: none;
+      border-radius: 10px;
+      box-shadow: 0 9px #999;
+      user-select: none;
+    }
+    .gait-toggle-btn:hover { background-color: #218838; }
+    .gait-toggle-btn:active {
+      background-color: #218838;
+      box-shadow: 0 5px #666;
+      transform: translateY(4px);
     }
 
     /* 页脚署名样式 */
@@ -420,26 +395,16 @@
   </style>
 </head>
 <body>
-  <div class="title-bar">
-    <button class="settings-btn" onclick="openSettings()" data-zh="⚙️ 设置" data-en="⚙️ Settings">⚙️ 设置</button>
-    <div class="mode-toggle" title="切换运动执行方式">
-      <span id="modeLabelContinuous">持续</span>
-      <label class="switch">
-        <input type="checkbox" id="modeToggle">
-        <span class="slider"></span>
-      </label>
-      <span id="modeLabelBurst">短程</span>
-    </div>
-    <button class="planner-btn" onclick="openMotionPlanner()" data-zh="🧭 运动规划" data-en="🧭 Planner">🧭 运动规划</button>
-    <button class="lang-switch" onclick="toggleLanguage()">English</button>
-  </div>
   <h1 class="title">
     <span id="pageTitle">机器人控制</span>
+    <button class="settings-btn" onclick="openSettings()" data-zh="⚙️ 设置" data-en="⚙️ Settings">⚙️ 设置</button>
+    <button class="lang-switch" onclick="toggleLanguage()">English</button>
   </h1>
-  <div class="mode-hint" id="modeHint">当前：持续运动模式</div>
 
   <center><span align="center" style="text-align: center; display: inline-block;padding: 5px; font-size: 120%;font-weight: bold;"><a style="width:200px; height:50px;" href="/calibration">
     <button id="CALIBRATEPAGE" type="button" onclick="buttonclick(this);" style="width:200px; height: 30px; Text-align: center;">Calibration: Start | Save</button></a></span></center><br>
+  <center><span align="center" style="text-align: center; display: inline-block;padding: 5px; font-size: 120%;font-weight: bold;"><a style="width:200px; height:50px;" href="/planner">
+    <button id="PLANNERPAGE" type="button" style="width:200px; height: 30px; Text-align: center;" data-zh="运动规划" data-en="Motion Planner">运动规划</button></a></span></center><br>
 
   <!-- 速度控制区域 -->
   <div class="speed-control">
@@ -450,6 +415,14 @@
       <button class="speed-btn active" data-speed="0.5" data-zh="中速" data-en="Medium">中速</button>
       <button class="speed-btn" data-speed="1.0" data-zh="快速" data-en="Fastest">快速</button>
     </div>
+  </div>
+
+  <!-- 步态控制区域（单按钮交互：点击循环切换；六足固定默认步态） -->
+  <div class="gait-control" id="gaitControl">
+    <div class="gait-label" id="gaitLabel">步态模式</div>
+    <center>
+      <button class="gait-toggle-btn" id="gaitToggleBtn" type="button">步态：默认</button>
+    </center>
   </div>
   
   <div class="grid-container">
@@ -521,7 +494,7 @@
   <!-- 页脚署名 -->
   <footer class="footer">
     <div class="footer-content">
-      <div class="footer-title" id="footerTitle">开源项目 · NodeHexa 六足机器人</div>
+      <div class="footer-title" id="footerTitle">开源项目 · NodeHexa 机器人</div>
       <div class="footer-links">
         <a href="https://space.bilibili.com/85652131" target="_blank" class="footer-link" title="B站主页">
           <svg class="footer-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -548,23 +521,6 @@
   <script>
     var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd"; 
     let websocketCarInput;
-    let shortRunMode = false;
-    const SHORT_RUN_CYCLES = 1;
-    const movementModeKeys = {
-      0: 'standby',
-      1: 'forward',
-      2: 'forwardfast',
-      3: 'backward',
-      4: 'turnleft',
-      5: 'turnright',
-      6: 'shiftleft',
-      7: 'shiftright',
-      8: 'climb',
-      9: 'rotatex',
-      10: 'rotatey',
-      11: 'rotatez',
-      12: 'twist'
-    };
 
     function initRobotInputWebSocket() {
       websocketCarInput = new WebSocket(webSocketCarInputUrl);
@@ -582,39 +538,66 @@
     }
 
     function sendCommand(commandMode) {
-      const payload = buildMovementPayload(commandMode);
-      if (!payload) return;
-      sendPayload(payload, 'movement');
-    }
-
-    function buildMovementPayload(commandMode) {
-      if (shortRunMode && commandMode !== 0) {
-        const modeKey = movementModeKeys[commandMode];
-        if (!modeKey) {
-          console.warn('Unknown movement mode', commandMode);
-          return null;
-        }
-        return {
-          movementMode: modeKey,
-          cycles: SHORT_RUN_CYCLES
-        };
-      }
       let command = 0;
-      command |= (1 << commandMode);
-      return { movementMode: command };
+      command |= (1<<commandMode);
+      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
+        websocketCarInput.send(JSON.stringify({movementMode: command}));
+        console.log('Sent command: ' + command);
+      } else {
+        console.log('WebSocket is not open. Cannot send command.');
+      }
     }
 
     function sendSpeed(speed) {
-      sendPayload({ speed: parseFloat(speed) }, 'speed');
+      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
+        websocketCarInput.send(JSON.stringify({speed: parseFloat(speed)}));
+        console.log('Sent speed: ' + speed);
+      } else {
+        console.log('WebSocket is not open. Cannot send speed.');
+      }
     }
 
-    function sendPayload(payload, tag) {
+    function sendGaitMode(gaitMode) {
       if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
-        websocketCarInput.send(JSON.stringify(payload));
-        console.log('Sent ' + (tag || 'payload') + ':', payload);
+        websocketCarInput.send(JSON.stringify({gaitMode: parseInt(gaitMode, 10)}));
+        console.log('Sent gaitMode: ' + gaitMode);
       } else {
-        console.log('WebSocket is not open. Cannot send payload.');
+        console.log('WebSocket is not open. Cannot send gaitMode.');
       }
+    }
+
+    // 步态控制（四足: 0/1/2/3 循环；六足: 仅 0）
+    let robotType = 'hexa';
+    let supportedGaits = [0];
+    let currentGait = 0; // 默认 TROT/默认步态
+    const gaitNames = {
+      0: { zh: '小跑', en: 'Trot' },
+      1: { zh: '慢走', en: 'Walk' },
+      2: { zh: '疾驰', en: 'Gallop' },
+      3: { zh: '匍匐', en: 'Creep' }
+    };
+
+    function getGaitPrefix() {
+      return currentLang === 'zh' ? '步态：' : 'Gait: ';
+    }
+
+    function getDefaultGaitText() {
+      return currentLang === 'zh' ? '默认' : 'Default';
+    }
+
+    function formatGaitButtonText(gaitMode) {
+      if (robotType !== 'quad') {
+        // 六足：只有一个步态，不需要切换文字
+        return getGaitPrefix() + getDefaultGaitText();
+      }
+      const name = gaitNames[gaitMode] ? gaitNames[gaitMode][currentLang] : gaitNames[0][currentLang];
+      return getGaitPrefix() + name;
+    }
+
+    function renderGaitButton() {
+      const btn = document.getElementById('gaitToggleBtn');
+      if (!btn) return;
+      btn.textContent = formatGaitButtonText(currentGait);
     }
 
     function initSpeedControl() {
@@ -641,6 +624,51 @@
       });
     }
 
+    function initGaitControl() {
+      const btn = document.getElementById('gaitToggleBtn');
+      if (!btn) return;
+
+      // 恢复本地缓存（仅四足生效）
+      try {
+        const saved = window.localStorage.getItem('gaitMode');
+        if (saved !== null && saved !== undefined && saved !== '') {
+          const v = parseInt(saved, 10);
+          if (!Number.isNaN(v) && v >= 0 && v <= 3) currentGait = v;
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      renderGaitButton();
+
+      btn.addEventListener('click', function() {
+        // 六足：只有一个步态，不切换文本；但允许点击发送一次 gaitMode=0（固件会忽略/默认）
+        if (!supportedGaits || supportedGaits.length <= 1 || robotType !== 'quad') {
+          currentGait = 0;
+          renderGaitButton();
+          sendGaitMode(0);
+          return;
+        }
+
+        // 约束：固件侧仅允许在待机模式切换步态
+        // 为提升体验：点击步态按钮时，先下发待机，再下发 gaitMode
+        sendCommand(0);
+
+        const idx = supportedGaits.indexOf(currentGait);
+        const next = supportedGaits[(idx >= 0 ? idx + 1 : 0) % supportedGaits.length];
+        currentGait = next;
+
+        try {
+          window.localStorage.setItem('gaitMode', String(currentGait));
+        } catch (_) {
+          // ignore
+        }
+
+        renderGaitButton();
+        setTimeout(() => sendGaitMode(currentGait), 180);
+      });
+    }
+
     // 语言切换功能
     let currentLang = 'zh'; // 默认中文
 
@@ -648,7 +676,8 @@
       pageTitle: { zh: '机器人控制', en: 'Robot Control' },
       langButton: { zh: 'English', en: '中文' },
       speedLabel: { zh: '运动速度控制', en: 'Movement Speed Control' },
-      footerTitle: { zh: '开源项目 · NodeHexa 六足机器人', en: 'Open Source · NodeHexa Hexapod Robot' },
+      gaitLabel: { zh: '步态模式', en: 'Gait Mode' },
+      footerTitle: { zh: '开源项目 · NodeHexa 机器人', en: 'Open Source · NodeHexa Robot' },
       bilibiliText: { zh: 'B站: 智造师_RoboticsCV', en: 'Bilibili: 智造师_RoboticsCV' },
       githubText: { zh: 'GitHub: ViolinLee', en: 'GitHub: ViolinLee' },
       wechatText: { zh: '公众号: RoboticsCV', en: 'WeChat: RoboticsCV' },
@@ -661,12 +690,7 @@
       btnReset: { zh: '恢复默认配置', en: 'Reset to Default' },
       currentConfig: { zh: '当前配置：', en: 'Current Config: ' },
       pendingMsg: { zh: '设备将在3秒后重启，请连接到新的AP：', en: 'Device will reboot in 3 seconds, please connect to new AP:' },
-      pendingHint: { zh: '连接后访问 http://192.168.4.1 完成确认', en: 'Visit http://192.168.4.1 after connecting to confirm' },
-      plannerBtn: { zh: '🧭 运动规划', en: '🧭 Planner' },
-      modeLabelContinuous: { zh: '持续', en: 'Continuous' },
-      modeLabelBurst: { zh: '短程', en: 'Burst' },
-      modeHintContinuous: { zh: '当前：持续运动模式', en: 'Mode: Continuous motion' },
-      modeHintBurst: { zh: '当前：短程动作模式', en: 'Mode: Single-cycle motion' }
+      pendingHint: { zh: '连接后访问 http://192.168.4.1 完成确认', en: 'Visit http://192.168.4.1 after connecting to confirm' }
     };
 
     function toggleLanguage() {
@@ -680,13 +704,18 @@
       
       // 更新速度控制区域文本
       document.querySelector('.speed-label').textContent = langTexts.speedLabel[currentLang];
+
+      // 更新步态控制区域文本
+      const gaitLabelEl = document.getElementById('gaitLabel');
+      if (gaitLabelEl) gaitLabelEl.textContent = langTexts.gaitLabel[currentLang];
+      renderGaitButton();
       
       // 更新速度档位按钮文本
       const speedButtons = document.querySelectorAll('.speed-btn[data-zh][data-en]');
       speedButtons.forEach(button => {
         button.textContent = button.getAttribute('data-' + currentLang);
       });
-      
+
       // 更新所有按钮文本
       const buttons = document.querySelectorAll('.button[data-zh][data-en]');
       buttons.forEach(button => {
@@ -707,7 +736,6 @@
       
       // 更新模态框文本
       updateModalTexts();
-      updateModeTexts();
       
       console.log('Language switched to: ' + (currentLang === 'zh' ? '中文' : 'English'));
     }
@@ -725,35 +753,29 @@
       }
     }
 
-    function initModeToggle() {
-      const toggle = document.getElementById('modeToggle');
-      if (!toggle) return;
-      toggle.checked = shortRunMode;
-      toggle.addEventListener('change', () => {
-        shortRunMode = toggle.checked;
-        updateModeHint();
-      });
-      updateModeTexts();
-    }
-
-    function updateModeTexts() {
-      const labelContinuous = document.getElementById('modeLabelContinuous');
-      const labelBurst = document.getElementById('modeLabelBurst');
-      const plannerBtn = document.querySelector('.planner-btn');
-      if (labelContinuous) labelContinuous.textContent = langTexts.modeLabelContinuous[currentLang];
-      if (labelBurst) labelBurst.textContent = langTexts.modeLabelBurst[currentLang];
-      if (plannerBtn) plannerBtn.textContent = langTexts.plannerBtn[currentLang];
-      updateModeHint();
-    }
-
-    function updateModeHint() {
-      const hint = document.getElementById('modeHint');
-      if (!hint) return;
-      hint.textContent = shortRunMode ? langTexts.modeHintBurst[currentLang] : langTexts.modeHintContinuous[currentLang];
-    }
-
-    function openMotionPlanner() {
-      window.location.href = '/planner';
+    async function loadCapsAndUpdateFooter() {
+      try {
+        const resp = await fetch('/api/caps', { cache: 'no-store' });
+        const data = await resp.json();
+        const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
+        robotType = type;
+        supportedGaits = (type === 'quad') ? [0, 1, 2, 3] : [0];
+        if (type !== 'quad') {
+          currentGait = 0;
+        } else {
+          // 四足：机器人上电默认步态为 trot(0)。为避免“网页显示与实际不一致”，这里强制初始化为 0。
+          currentGait = 0;
+        }
+        renderGaitButton();
+        if (type === 'quad') {
+          langTexts.footerTitle = { zh: '开源项目 · NodeQuadMini 四足机器人', en: 'Open Source · NodeQuadMini Quadruped Robot' };
+        } else {
+          langTexts.footerTitle = { zh: '开源项目 · NodeHexa 六足机器人', en: 'Open Source · NodeHexa Hexapod Robot' };
+        }
+        document.getElementById('footerTitle').textContent = langTexts.footerTitle[currentLang];
+      } catch (_) {
+        // ignore
+      }
     }
 
     // AP 配置功能
@@ -911,12 +933,13 @@
       }
     }
 
-    window.onload = function() {
+    window.onload = async function() {
       initRobotInputWebSocket();
       initSpeedControl();
+      initGaitControl();
       // 默认显示中文，无需调用toggleLanguage
       updateModalTexts();
-      initModeToggle();
+      await loadCapsAndUpdateFooter();
       
       // 检查是否有待确认的配置
       fetch('/api/ap-config')

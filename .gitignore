@@ -74,3 +74,6 @@ experiments/
 
 # Others
 .specstory/
+reference/
+test/
+workspace/pathTool/src/visualization/

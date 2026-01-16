@@ -55,5 +55,5 @@ namespace hexapod {
         return standay_table;
     }
 
-    #include "movement_table.h"
+    #include "generated/movement_table.h"
 }
