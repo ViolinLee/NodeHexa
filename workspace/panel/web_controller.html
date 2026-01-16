@@ -761,8 +761,8 @@
         if (type !== 'quad') {
           currentGait = 0;
         } else {
-          // 四足：确保 currentGait 在支持范围内
-          if (supportedGaits.indexOf(currentGait) < 0) currentGait = 0;
+          // 四足：机器人上电默认步态为 trot(0)。为避免“网页显示与实际不一致”，这里强制初始化为 0。
+          currentGait = 0;
         }
         renderGaitButton();
         if (type === 'quad') {

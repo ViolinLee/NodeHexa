@@ -61,11 +61,11 @@ namespace quadruped {
 
         if (angle > range_ + adjust_angle_) {
             LOG_INFO("Quad servo exceed[%d][%f]", pwmIndex_, angle);
-            angle = static_cast<float>(range_);
+            angle = static_cast<float>(range_ + adjust_angle_);
         }
         else if (angle < -range_ + adjust_angle_) {
             LOG_INFO("Quad servo exceed[%d][%f]", pwmIndex_, angle);
-            angle = static_cast<float>(-range_);
+            angle = static_cast<float>(-range_ + adjust_angle_);
         }
 
         angle_ = angle;

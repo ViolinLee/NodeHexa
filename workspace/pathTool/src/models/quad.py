@@ -32,9 +32,7 @@ class QuadModel(RobotPathModel):
             + cfg["kLegJoint2ToJoint3"] * COS30
             + cfg["kLegJoint3ToTip"] * SIN10
         )
-        # 四足站立足端外展角：与固件同源（见 firmware/include/config.h）
-        # 旧实现默认近似 45°：reach_xy = reach * cos45，同时作用于 X/Y（x/y 对称）
-        # 新实现：拆分为 reach_x / reach_y（由 config.h 提供的 sin/cos 决定）
+        # 四足站立足端外展角：与固件同源（见 firmware/include/config.h），reach 按 sin/cos 分解到 X/Y
         reach_x = reach * cfg["kQuadStanceCos"]
         reach_y = reach * cfg["kQuadStanceSin"]
 
@@ -197,11 +195,7 @@ class QuadModel(RobotPathModel):
 
         def gen_posture_twist(max_deg: float, steps: int = 20) -> Tuple[List[List[List[float]]], int, List[int]]:
             """
-            扭腰（twist）：对齐六足 `path/twist.py` 的效果，使用“刚体姿态变换”的序列（所有腿同一变换）。
-
-            说明（关键）：
-            - 之前实现为“前后腿 Z 轴相反方向旋转”，这不是刚体变换，会引入净平移，真机表现为足端在地面上慢慢挪动。
-            - 六足 twist 是以矩阵对所有腿做统一姿态变换（机身姿态变化），更接近“足端不动、机身扭/摆”。
+            扭腰（twist）：对齐六足 `path/twist.py` 的效果，使用统一的刚体姿态变换序列（所有腿同一变换）。
 
             这里不用 numpy，直接用点旋转函数实现与 `m * Rz(a) * Rx(b)` 等价的点变换：
               p' = Rx(raise) ( Rz(a) ( Rx(b) p ) )
@@ -216,16 +210,19 @@ class QuadModel(RobotPathModel):
             # 对齐 `path/twist.py` 的参数风格：
             # - Z 轴旋转幅度：max_deg（对应 twist_x_angle）
             # - X 轴摆动幅度：按 12/20 比例缩放（对应 twise_y_angle=12, twist_x_angle=20）
+            # raise 随旋转幅度渐进：z=0 时 raise=0，entry(0) 即 home。
             raise_deg = 3.0
             max_x_deg = float(max_deg) * (12.0 / 20.0)
             step_z_deg = float(max_deg) / quarter
             step_x_deg = float(max_x_deg) / quarter
 
             def apply_twist(p: List[float], z_deg: float, x_deg: float) -> List[float]:
-                # p' = Rx(raise) ( Rz(z) ( Rx(x) p ) )
+                # p' = Rx(raise(z)) ( Rz(z) ( Rx(x) p ) )
+                # 其中 raise(z) 在 z=0 时为 0，确保 entry 帧为 home（便于姿态动作互切无需抬腿对齐）
                 p1 = rot_point_x(p, x_deg)
                 p2 = rot_point_z(p1, z_deg)
-                p3 = rot_point_x(p2, raise_deg)
+                ramp = abs(z_deg) / float(max_deg) if abs(float(max_deg)) > 1e-6 else 0.0
+                p3 = rot_point_x(p2, raise_deg * ramp)
                 return p3
 
             # 4 段分段线性：与 `path/twist.py` 结构一致（避免突兀跳变，且能对齐 entries 语义）
@@ -281,6 +278,9 @@ class QuadModel(RobotPathModel):
             # - shiftleft/shiftright：将传播方向相对前进方向旋转 ±90°（离散近似）
             #
             # 注：腿索引与固件一致：0:FR, 1:BR, 2:BL, 3:FL
+            # phase_sensitive_gaits：需要额外“腿相位映射/腿序映射”的步态（波浪传播型）
+            # 注：gallop 在这里不按 phase-sensitive 处理（否则会改变其传播特性），但 backward 需要额外做 front/back 映射，
+            # 以保证 forward/backward 两表的“同一姿态帧”存在（用于丝滑切换/统一 entry）。
             phase_sensitive_gaits = {QuadGait.GAIT_WALK, QuadGait.GAIT_CREEP}
 
             # old_leg -> new_leg（把 old_leg 的相位/轨迹分配给 new_leg）
@@ -305,6 +305,40 @@ class QuadModel(RobotPathModel):
                     s = 0
                 h = (s + len(frames_fwd) // 2) % max(1, len(frames_fwd))
                 return [s, h] if len(frames_fwd) >= 2 else [s]
+
+            # ---- entry / pose 匹配工具：用于把两表的 entry 做成“等效姿态帧” ----
+            def pose_key(data_in, idx: int, nd: int = 4):
+                # data_in: float[4][N][3]
+                return tuple(
+                    (
+                        round(float(data_in[leg][idx][0]), nd),
+                        round(float(data_in[leg][idx][1]), nd),
+                        round(float(data_in[leg][idx][2]), nd),
+                    )
+                    for leg in range(self.LEG_COUNT)
+                )
+
+            def find_matching_index(data_src, idx_src: int, data_dst) -> int:
+                """
+                在 data_dst 中找一个与 data_src[idx_src] 完全相同的姿态帧索引。
+                若找不到则返回 -1。
+                """
+                if not data_dst or not data_dst[0]:
+                    return -1
+                key = pose_key(data_src, idx_src)
+                for j in range(len(data_dst[0])):
+                    if pose_key(data_dst, j) == key:
+                        return j
+                return -1
+
+            def reverse_cycle(data_in):
+                """时间反向（保持循环）：out[i] = in[(N-i)%N]"""
+                n = len(data_in[0]) if data_in and data_in[0] else 0
+                out = [[[0.0, 0.0, 0.0] for _ in range(n)] for _ in range(self.LEG_COUNT)]
+                for leg in range(self.LEG_COUNT):
+                    for i in range(n):
+                        out[leg][i] = data_in[leg][(n - i) % n]
+                return out
 
             def make_variant_from(data_src, transform_fn):
                 data_var = [[[0.0, 0.0, 0.0] for _ in range(len(frames_fwd))] for _ in range(self.LEG_COUNT)]
@@ -343,7 +377,7 @@ class QuadModel(RobotPathModel):
             # backward: 关于 X 轴对称 (y -> -y)
             data_bwd = make_variant(lambda leg, v: [v[0], -v[1], v[2]])
             entries_bwd = entries
-            if gait_mode in phase_sensitive_gaits:
+            if gait_mode in phase_sensitive_gaits or gait_mode == QuadGait.GAIT_GALLOP:
                 data_bwd = remap_legs_by_old_to_new(data_bwd, perm_front_back)
                 entries_bwd = compute_entries_for_data(data_bwd[0])
             results[f"{base_name}_backward"] = (
@@ -373,6 +407,11 @@ class QuadModel(RobotPathModel):
                 # shiftright = 方向从 +Y 旋转到 +X（-90°）
                 data_sr = remap_legs_by_old_to_new(data_sr, perm_rotate_cw)
                 entries_sr = compute_entries_for_data(data_sr[0])
+            if gait_mode == QuadGait.GAIT_GALLOP:
+                # gallop 的左右侧移表目前不满足“存在等效姿态帧”的要求（用于丝滑切换/单 entry）。
+                # 这里改用：shiftright = shiftleft 的时间反向（物理意义上对应侧移方向反转），从而保证两表共享姿态集合。
+                data_sr = reverse_cycle(data_sl)
+                entries_sr = entries_sl
             results[f"{base_name}_shiftright"] = (
                 data_sr,
                 "shift_quad",
@@ -406,7 +445,43 @@ class QuadModel(RobotPathModel):
             entries_tr = entries
             if gait_mode in phase_sensitive_gaits:
                 entries_tr = compute_entries_for_data(data_tr[0])
+            if gait_mode == QuadGait.GAIT_GALLOP:
+                # gallop 左右转向同理：用 turnleft 的时间反向作为 turnright，保证存在等效姿态帧
+                data_tr = reverse_cycle(results[f"{base_name}_turnleft"][0])
+                entries_tr = results[f"{base_name}_turnleft"][3]
             results[f"{base_name}_turnright"] = (data_tr, "shift_quad", dur, entries_tr)
+
+            # ---- 单 entry 规范化（组内 entry 等效切换）----
+            # 约定：
+            # - forward/backward：用 forward 的第2个 entry（entries[1]）做 canonical，
+            #   backward 的 entry 通过“姿态帧匹配”自动求得（同一姿态不同索引）。
+            # - turnleft/turnright：同理
+            # - shiftleft/shiftright：同理（注意 gallop 已做 time-reverse，保证能匹配）
+            def normalize_pair_entries(a_key: str, b_key: str) -> None:
+                a_data, a_mode, a_dur, a_entries = results[a_key]
+                b_data, b_mode, b_dur, b_entries = results[b_key]
+                assert a_mode == b_mode == "shift_quad"
+                # 选 a 的第二个 entry（若不存在则退化为第一个）
+                a_idx = a_entries[1] if len(a_entries) >= 2 else a_entries[0]
+                b_idx = find_matching_index(a_data, a_idx, b_data)
+                if b_idx < 0:
+                    # 兜底：若找不到完全相同姿态，退化为 b 的第二个 entry / 第一个
+                    b_idx = b_entries[1] if len(b_entries) >= 2 else b_entries[0]
+                results[a_key] = (a_data, a_mode, a_dur, [int(a_idx)])
+                results[b_key] = (b_data, b_mode, b_dur, [int(b_idx)])
+
+            def normalize_single_entry(k: str) -> None:
+                d, m, du, es = results[k]
+                if not es:
+                    es = [0]
+                # 对非 pair 的路径（如 forwardfast），同样只保留一个 entry：优先用 entries[1]（半程），否则 entries[0]
+                idx = es[1] if len(es) >= 2 else es[0]
+                results[k] = (d, m, du, [int(idx)])
+
+            normalize_pair_entries(f"{base_name}_forward", f"{base_name}_backward")
+            normalize_pair_entries(f"{base_name}_turnleft", f"{base_name}_turnright")
+            normalize_pair_entries(f"{base_name}_shiftleft", f"{base_name}_shiftright")
+            normalize_single_entry(f"{base_name}_forwardfast")
 
         # ---- 姿态动作：不分步态（参考六足的 rotate/twist，但实现保持“起点为 0 角度”更平滑） ----
         # 注：climb 四足不实现（重心不稳定），固件侧会做降级处理
