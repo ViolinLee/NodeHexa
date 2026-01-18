@@ -19,7 +19,7 @@ class QuadGait:
         self.home_y = home_y
         self.home_z = home_z
         # gait constants
-        self.amplitudeX, self.amplitudeY, self.amplitudeZ = 25, 15, 25
+        self.amplitudeX, self.amplitudeY, self.amplitudeZ = 15, 15, 25
         self.frame_time_ms = frame_time_ms
 
     def gen_path(self, gait_mode, move_status, gait_speed=0):
@@ -124,9 +124,9 @@ class QuadGait:
             for tick_cnt in range(num_ticks):
                 interp_id = stage_id * num_ticks + tick_cnt
                 if stage_id == 0:
-                    fl_path_quad[interp_id][0] = 0.0
+                    fl_path_quad[interp_id][0] = abs(self.amplitudeY) * sin(pi * tick_cnt / num_ticks)
                     fl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 1.5
-                    fl_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks)
+                    fl_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks) * 0.7
                 elif stage_id in (1, 2, 3):
                     fl_path_quad[interp_id][0] = 0.0
                     fl_path_quad[interp_id][1] = (
@@ -143,6 +143,12 @@ class QuadGait:
         fr_path_quad = deepcopy(right_rotate_path(fl_path_quad, num_ticks * 2))
         br_path_quad = deepcopy(right_rotate_path(fl_path_quad, num_ticks * 1))
         bl_path_quad = deepcopy(right_rotate_path(fl_path_quad, num_ticks * 3))
+
+        # 抬腿阶段“向外扩”需要左右镜像：右侧腿(+X)，左侧腿(-X)
+        for p in fl_path_quad:  # FL
+            p[0] = -p[0]
+        for p in bl_path_quad:  # BL
+            p[0] = -p[0]
 
         return self._formated_path_status(fr_path_quad, fl_path_quad, bl_path_quad, br_path_quad, move_status)
 
