@@ -331,15 +331,31 @@ namespace quadruped {
             return;
         }
 
-        // standby -> 其他：直接做“逐腿对齐到目标 entry”（无需等待 entry）
+        // standby -> 其他：
+        // - 对称 trot：省略逐腿对齐（trot 同时两腿悬空，逐腿对齐反而容易“晃/抽”），改为整体平滑过渡到目标 entry
+        // - 其他步态：保持原先的“逐腿对齐到目标 entry”（无需等待 entry）
         if (mode_ == MOVEMENT_STANDBY) {
             const QuadMovementTable& tgt = tableForMode(requestedMode_);
             if (!tgt.table || !tgt.entries || tgt.length <= 0) {
                 LOG_INFO("[QuadMovement] Error: null movement of mode(%d)!", requestedMode_);
                 return;
             }
+            const int tgtEntry = entryIndexOf(tgt);
+
+            if (gaitMode_ == QUAD_GAIT_TROT) {
+                mode_ = requestedMode_;
+                pendingSwitch_ = QUAD_SWITCH_NONE;
+                index_ = tgtEntry;
+
+                // 给一个更长的切换时长（独立于 gait step），让从 standby 进入 trot 更柔和
+                const int actualSwitchDuration = static_cast<int>(config::movementSwitchDuration / speed_);
+                const int actualStepDuration = static_cast<int>(tgt.stepDuration / speed_);
+                remainTime_ = actualSwitchDuration > actualStepDuration ? actualSwitchDuration : actualStepDuration;
+                return;
+            }
+
             alignToMode_ = requestedMode_;
-            alignToIndex_ = entryIndexOf(tgt);
+            alignToIndex_ = tgtEntry;
             alignTarget_ = tgt.table[alignToIndex_];
 
             // 构造对齐腿序：目标 entry 若存在悬空腿，则最后动
@@ -402,9 +418,14 @@ namespace quadruped {
         }
 
         // 非 standby：先等当前模式走到它的 entry，再决定如何切换
-        pendingSwitch_ = isPairInternalSwitch(mode_, requestedMode_)
-            ? QUAD_SWITCH_WAIT_ENTRY_PAIR
-            : QUAD_SWITCH_WAIT_ENTRY_ALIGN;
+        if (gaitMode_ == QUAD_GAIT_TROT) {
+            // 对称 trot：统一按“entry 瞬切”处理，避免 entry-ground + 逐腿对齐
+            pendingSwitch_ = QUAD_SWITCH_WAIT_ENTRY_PAIR;
+        } else {
+            pendingSwitch_ = isPairInternalSwitch(mode_, requestedMode_)
+                ? QUAD_SWITCH_WAIT_ENTRY_PAIR
+                : QUAD_SWITCH_WAIT_ENTRY_ALIGN;
+        }
     }
 
     void QuadMovement::setGaitMode(QuadGaitMode gait) {

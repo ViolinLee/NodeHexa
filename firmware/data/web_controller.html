@@ -522,6 +522,25 @@
     var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd"; 
     let websocketCarInput;
 
+    // 低电量锁存：一旦触发，直到重启才会恢复
+    let lowBatteryLatched = false;
+    const lowBatteryMessages = {
+      zh: '电量低，请关闭电源后进行充电！',
+      en: 'Low battery. Please power off and recharge.'
+    };
+
+    function getLowBatteryMessage() {
+      return (typeof currentLang !== 'undefined' && currentLang === 'en') ? lowBatteryMessages.en : lowBatteryMessages.zh;
+    }
+
+    function guardLowBattery() {
+      if (lowBatteryLatched) {
+        alert(getLowBatteryMessage());
+        return true;
+      }
+      return false;
+    }
+
     function initRobotInputWebSocket() {
       websocketCarInput = new WebSocket(webSocketCarInputUrl);
       websocketCarInput.onopen = function(event) {
@@ -532,12 +551,32 @@
         setTimeout(initRobotInputWebSocket, 2000);
       };
       websocketCarInput.onmessage = function(event) {
-        let data = JSON.parse(event.data).raw;
-        console.log('Battery monitor: ${data}%');
+        try {
+          const msg = JSON.parse(event.data);
+
+          // 低电量事件：固件锁存后主动通知
+          if (msg && msg.event === 'lowBattery') {
+            lowBatteryLatched = true;
+            alert(msg.message || getLowBatteryMessage());
+            return;
+          }
+
+          // 兼容：固件也可能返回 {status:"error", message:"..."}
+          if (msg && msg.status === 'error' && msg.message) {
+            if (String(msg.message).indexOf('电量低') !== -1) {
+              lowBatteryLatched = true;
+              alert(msg.message);
+              return;
+            }
+          }
+        } catch (_) {
+          // ignore non-JSON payload
+        }
       };
     }
 
     function sendCommand(commandMode) {
+      if (guardLowBattery()) return;
       let command = 0;
       command |= (1<<commandMode);
       if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
@@ -549,6 +588,7 @@
     }
 
     function sendSpeed(speed) {
+      if (guardLowBattery()) return;
       if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
         websocketCarInput.send(JSON.stringify({speed: parseFloat(speed)}));
         console.log('Sent speed: ' + speed);
@@ -558,6 +598,7 @@
     }
 
     function sendGaitMode(gaitMode) {
+      if (guardLowBattery()) return;
       if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
         websocketCarInput.send(JSON.stringify({gaitMode: parseInt(gaitMode, 10)}));
         console.log('Sent gaitMode: ' + gaitMode);
@@ -569,7 +610,7 @@
     // 步态控制（四足: 0/1/2/3 循环；六足: 仅 0）
     let robotType = 'hexa';
     let supportedGaits = [0];
-    let currentGait = 0; // 默认 TROT/默认步态
+    let currentGait = 3; // 四足默认匍匐(Creep)
     const gaitNames = {
       0: { zh: '小跑', en: 'Trot' },
       1: { zh: '慢走', en: 'Walk' },
@@ -760,11 +801,15 @@
         const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
         robotType = type;
         supportedGaits = (type === 'quad') ? [0, 1, 2, 3] : [0];
+        lowBatteryLatched = !!(data && data.power && data.power.lowBatteryLatched);
+
         if (type !== 'quad') {
           currentGait = 0;
         } else {
-          // 四足：机器人上电默认步态为 trot(0)。为避免“网页显示与实际不一致”，这里强制初始化为 0。
-          currentGait = 0;
+          // 四足：默认步态为 creep(3)，若本地缓存非法则回退到默认
+          if (typeof currentGait !== 'number' || Number.isNaN(currentGait) || currentGait < 0 || currentGait > 3) {
+            currentGait = 3;
+          }
         }
         renderGaitButton();
         if (type === 'quad') {

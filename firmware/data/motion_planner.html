@@ -233,6 +233,34 @@
     let currentLang = 'zh';
     const MAX_SEQUENCE_ACTIONS = 5;
     let sequenceActions = [];
+    let lowBatteryLatched = false;
+
+    const lowBatteryMessages = {
+      zh: '电量低，请关闭电源后进行充电！',
+      en: 'Low battery. Please power off and recharge.'
+    };
+
+    function getLowBatteryMessage() {
+      return currentLang === 'en' ? lowBatteryMessages.en : lowBatteryMessages.zh;
+    }
+
+    function guardLowBattery() {
+      if (lowBatteryLatched) {
+        showAlert(getLowBatteryMessage());
+        return true;
+      }
+      return false;
+    }
+
+    async function loadCaps() {
+      try {
+        const resp = await fetch('/api/caps', { cache: 'no-store' });
+        const data = await resp.json();
+        lowBatteryLatched = !!(data && data.power && data.power.lowBatteryLatched);
+      } catch (_) {
+        // ignore
+      }
+    }
 
     const movementOptions = [
       { key: 'forward', zh: '前进', en: 'Forward' },
@@ -300,6 +328,22 @@
       };
       websocketCarInput.onmessage = (event) => {
         appendLog('WS <= ' + event.data);
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg && msg.event === 'lowBattery') {
+            lowBatteryLatched = true;
+            showAlert(msg.message || getLowBatteryMessage());
+            return;
+          }
+          if (msg && msg.status === 'error' && msg.message) {
+            if (String(msg.message).indexOf('电量低') !== -1) {
+              lowBatteryLatched = true;
+              showAlert(msg.message);
+            }
+          }
+        } catch (_) {
+          // ignore
+        }
       };
     }
 
@@ -310,6 +354,7 @@
     }
 
     function sendPayload(payload, tag) {
+      if (guardLowBattery()) return;
       if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
         websocketCarInput.send(JSON.stringify(payload));
         appendLog(`WS => ${tag || 'payload'} ${JSON.stringify(payload)}`);
@@ -469,6 +514,7 @@
 
     window.onload = function() {
       initWebSocket();
+      loadCaps();
       populateSelects();
       renderSequence();
     };

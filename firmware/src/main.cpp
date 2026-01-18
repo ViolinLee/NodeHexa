@@ -76,7 +76,10 @@ static bool frameStarted = false;  // 帧接收状态：false-等待起始符$�
 // 电池监测相关变量
 static const float LOW_VOLTAGE_THRESHOLD = 6.4f; // 低电压阈值(V)
 static const uint16_t ADC_THRESHOLD = (uint16_t)(LOW_VOLTAGE_THRESHOLD * 47.0f / (100.0f + 47.0f) / 3.3f * 4095.0f); // ADC阈值
-static bool lowVoltageFlag = false;
+// 低电量锁存：一旦置 true，只能通过重启恢复（避免 ADC 电压波动导致忽高忽低）
+static bool lowBatteryLatched = false;
+static bool lowBatteryHandled = false; // 是否已执行过“强制待机/清队列/通知”动作
+static constexpr const char* kLowBatteryUiMessage = "电量低，请关闭电源后进行充电！";
 SemaphoreHandle_t voltageMutex;
 
 // 实例
@@ -116,6 +119,12 @@ void SerialCommandTask(void *pvParameters);
 void sendSerialResponse(const String& message);
 void testUART2Connection();
 void clearMovementFlag();
+
+// 低电量锁存辅助
+static bool isLowBatteryLatched();
+static void handleLowBatteryLatchedOnce();
+static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client);
+static void sendLowBatteryErrorToSerial();
 
 struct AdvancedCommandResult {
   bool handled = false;
@@ -243,6 +252,15 @@ void setup() {
 }
 
 void loop() {
+  // 低电量锁存后：强制回到运动模式（standby），并屏蔽所有控制
+  if (isLowBatteryLatched()) {
+    if (_mode != 0) {
+      _mode = 0;
+    }
+    normal_loop();
+    return;
+  }
+
   if (_mode == 0) {
     normal_loop();
   }
@@ -265,21 +283,31 @@ void normal_loop() {
   //   delay(1000 - REACT_DELAY);
   // }
 
+  const bool lowBattery = isLowBatteryLatched();
+  if (lowBattery) {
+    handleLowBatteryLatchedOnce();
+  }
+
   auto t0 = millis();
 
   auto mode = hexapod::MOVEMENT_STANDBY;
-  if (motion::controller().hasActiveAction()) {
-    mode = motion::controller().activeMode();
-  } else {
-    if (xSemaphoreTake(flagMutex, portMAX_DELAY) == pdTRUE) {
-      for (auto m = hexapod::MOVEMENT_STANDBY; m < hexapod::MOVEMENT_TOTAL; m++) {
-        if (flag & (1<<m)) {
-          mode = m;
-          break;
+  if (!lowBattery) {
+    if (motion::controller().hasActiveAction()) {
+      mode = motion::controller().activeMode();
+    } else {
+      if (xSemaphoreTake(flagMutex, portMAX_DELAY) == pdTRUE) {
+        for (auto m = hexapod::MOVEMENT_STANDBY; m < hexapod::MOVEMENT_TOTAL; m++) {
+          if (flag & (1<<m)) {
+            mode = m;
+            break;
+          }
         }
+        xSemaphoreGive(flagMutex);
       }
-      xSemaphoreGive(flagMutex);
     }
+  } else {
+    // 低电量锁存后：强制待机
+    mode = hexapod::MOVEMENT_STANDBY;
   }
 
   if (hexapod::Robot) {
@@ -332,6 +360,12 @@ void handleCalibrationPage(AsyncWebServerRequest *request) {
 */
 void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
   String body = String((char*)data).substring(0, len);
+
+  // 低电量锁存后：禁止校准动作（避免电压波动导致舵机异常）
+  if (isLowBatteryLatched()) {
+    request->send(200, "application/json", String("{\"status\":\"error\",\"message\":\"") + kLowBatteryUiMessage + "\"}");
+    return;
+  }
 
   CalibrationData calibrationData = parseCalibrationData(body);
   if (calibrationData.modeChanged) {
@@ -400,10 +434,12 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 
 /* UI 能力探测：仅返回 robot.type + legCount */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<128> doc;
+  StaticJsonDocument<192> doc;
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = kRobotType;
   robot["legCount"] = kRobotLegCount;
+  JsonObject power = doc.createNestedObject("power");
+  power["lowBatteryLatched"] = isLowBatteryLatched();
 
   String responseStr;
   serializeJson(doc, responseStr);
@@ -578,6 +614,14 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
           Serial.println(err.c_str());
           return;
         }
+
+        // 低电量锁存后：屏蔽所有控制指令（包括运动模式/速度/步态/序列）
+        if (isLowBatteryLatched()) {
+          motion::controller().clear("[Power] low battery, command ignored");
+          clearMovementFlag();
+          sendLowBatteryErrorToWebSocket(client);
+          return;
+        }
         
         AdvancedCommandResult adv = handleAdvancedMotionCommand(json.as<JsonVariantConst>());
         if (adv.handled) {
@@ -721,22 +765,21 @@ void BatteryMonitorTask(void *pvParameters) {
                   LOW_VOLTAGE_THRESHOLD);
     #endif
 
-    bool newFlag = (adcAverage < ADC_THRESHOLD);
-    
-    xSemaphoreTake(voltageMutex, portMAX_DELAY);
-    if(lowVoltageFlag != newFlag) {
-      lowVoltageFlag = newFlag;
-      
-      // 打印电压状态变化
-      #ifdef DEBUG_ADC_MONITOR
-      if(newFlag) {
-        Serial.println("WARNING: Low voltage detected!");
-      } else {
-        Serial.println("Voltage returned to normal level.");
+    const bool isLow = (adcAverage < ADC_THRESHOLD);
+
+    // 低电量锁存：只要检测到一次低电压，就保持为 true，直到重启
+    if (isLow) {
+      xSemaphoreTake(voltageMutex, portMAX_DELAY);
+      if (!lowBatteryLatched) {
+        lowBatteryLatched = true;
+        lowBatteryHandled = false; // 允许主循环执行一次强制待机/通知
+
+        #ifdef DEBUG_ADC_MONITOR
+        Serial.println("WARNING: Low voltage detected! (latched)");
+        #endif
       }
-      #endif
+      xSemaphoreGive(voltageMutex);
     }
-    xSemaphoreGive(voltageMutex);
 
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
@@ -749,7 +792,7 @@ void LEDControllerTask(void *pvParameters) {
   while(1) {
     // 读取电压标志（使用"共享变量+互斥锁"这种FreeRTOS中常见的线程安全通信方式）
     xSemaphoreTake(voltageMutex, portMAX_DELAY);
-    bool currentState = lowVoltageFlag;
+    bool currentState = lowBatteryLatched;
     xSemaphoreGive(voltageMutex);
 
     if(currentState) {
@@ -787,6 +830,74 @@ void clearMovementFlag() {
     flag = 0;
     xSemaphoreGive(flagMutex);
   }
+}
+
+static bool isLowBatteryLatched() {
+  if (!voltageMutex) {
+    return lowBatteryLatched;
+  }
+  bool value = lowBatteryLatched;
+  if (xSemaphoreTake(voltageMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    value = lowBatteryLatched;
+    xSemaphoreGive(voltageMutex);
+  }
+  return value;
+}
+
+static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client) {
+  StaticJsonDocument<160> ack;
+  ack["status"] = "error";
+  ack["message"] = kLowBatteryUiMessage;
+  String payload;
+  serializeJson(ack, payload);
+  if (client) {
+    client->text(payload);
+  }
+}
+
+static void sendLowBatteryErrorToSerial() {
+  StaticJsonDocument<160> ack;
+  ack["status"] = "error";
+  ack["message"] = kLowBatteryUiMessage;
+  String payload;
+  serializeJson(ack, payload);
+  sendSerialResponse(payload);
+}
+
+static void handleLowBatteryLatchedOnce() {
+  bool doHandle = false;
+  if (voltageMutex && xSemaphoreTake(voltageMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    if (lowBatteryLatched && !lowBatteryHandled) {
+      lowBatteryHandled = true;
+      doHandle = true;
+    }
+    xSemaphoreGive(voltageMutex);
+  } else {
+    if (lowBatteryLatched && !lowBatteryHandled) {
+      lowBatteryHandled = true;
+      doHandle = true;
+    }
+  }
+
+  if (!doHandle) {
+    return;
+  }
+
+  motion::controller().clear("[Power] low battery, force standby");
+  clearMovementFlag();
+
+  StaticJsonDocument<192> doc;
+  doc["event"] = "lowBattery";
+  doc["message"] = kLowBatteryUiMessage;
+
+  String payload;
+  serializeJson(doc, payload);
+
+  // 主动广播给所有 WebSocket 客户端 + 串口，方便 UI 弹窗提示
+  wsRoverCmd.textAll(payload);
+  sendSerialResponse(payload);
+
+  Serial.println("[Power] Low battery latched: force standby and block commands.");
 }
 
 static void handleSequenceComplete(uint32_t sequenceId) {
@@ -1025,6 +1136,14 @@ void parseSerialMovementCommand(const String& jsonString) {
     Serial.println(err.c_str());
     // 发送错误响应
     sendSerialResponse("{\"status\":\"error\",\"message\":\"Invalid JSON format\"}");
+    return;
+  }
+
+  // 低电量锁存后：屏蔽所有控制指令（包括运动模式/速度/步态/序列）
+  if (isLowBatteryLatched()) {
+    motion::controller().clear("[Power] low battery, command ignored");
+    clearMovementFlag();
+    sendLowBatteryErrorToSerial();
     return;
   }
   

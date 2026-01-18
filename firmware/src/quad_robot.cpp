@@ -16,7 +16,7 @@ namespace quadruped {
         : speed_{config::defaultSpeed},
           legs_{Leg(0), Leg(1), Leg(2), Leg(3)},
           mode_{MOVEMENT_STANDBY},
-          movement_{MOVEMENT_STANDBY, QUAD_GAIT_TROT} {
+          movement_{MOVEMENT_STANDBY, QUAD_GAIT_CREEP} {
     }
 
     void QuadRobot::init(bool setting, bool isReset) {

@@ -25,7 +25,7 @@ namespace quadruped {
     class QuadMovement {
     public:
         explicit QuadMovement(hexapod::MovementMode mode,
-                              QuadGaitMode gait = QUAD_GAIT_TROT);
+                              QuadGaitMode gait = QUAD_GAIT_CREEP);
 
         void setMode(hexapod::MovementMode newMode);
         void setGaitMode(QuadGaitMode gait);
