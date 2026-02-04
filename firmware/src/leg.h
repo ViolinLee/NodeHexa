@@ -34,6 +34,7 @@ namespace hexapod {
         //
         void forceResetTipPosition() {
             tipPos_ = Point3D(0, 0, 0);
+            tipPosLocal_ = Point3D(0, 0, 0);
         }
 
     private:

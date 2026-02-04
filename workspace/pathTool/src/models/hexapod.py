@@ -109,6 +109,7 @@ class HexapodModel(RobotPathModel):
 
         elif mode == "matrix":
             # data: np.matrix[N]
+            # 注意：这里的 length 必须是“帧数 N”，而不是单个 4x4 矩阵的 len()（那会返回 4）。
             count = len(data)
             for i in range(count):
                 result += (
@@ -146,7 +147,7 @@ class HexapodModel(RobotPathModel):
         result += (
             "const MovementTable {name}_table "
             "{{{name}_paths, {count}, {dur}, {name}_entries, {ecount} }};"
-        ).format(name=path_name, count=len(data[0]), dur=dur, ecount=len(entries))
+        ).format(name=path_name, count=count, dur=dur, ecount=len(entries))
         return result
 
     def generate_c_def(self, path_name: str) -> str:

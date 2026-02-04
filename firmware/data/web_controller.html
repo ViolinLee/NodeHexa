@@ -6,10 +6,7 @@
       text-align: center;
       position: relative;
     }
-    .lang-switch, .settings-btn {
-      position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
+    .lang-switch, .settings-btn, .planner-btn {
       background-color: #1E90FF;
       color: white;
       border: none;
@@ -20,16 +17,39 @@
       box-shadow: 0 4px #999;
       transition: all 0.3s;
     }
-    .lang-switch {
-      right: 20px;
-    }
-    .settings-btn {
+    .header-actions-left {
+      position: absolute;
       left: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .header-actions-right {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .planner-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
     }
     .lang-switch:hover, .settings-btn:hover {
       background-color: #0b7dda;
     }
+    .planner-btn:hover { background-color: #0b7dda; }
     .lang-switch:active, .settings-btn:active {
+      box-shadow: 0 2px #666;
+      transform: translateY(-48%);
+    }
+    .planner-btn:active {
       box-shadow: 0 2px #666;
       transform: translateY(-48%);
     }
@@ -171,28 +191,91 @@
       margin-bottom: 10px;
       text-align: center;
     }
-    .gait-toggle-btn {
-      display: inline-block;
-      width: 260px;
-      height: 50px;
-      line-height: 50px;
-      font-size: 18px;
-      cursor: pointer;
-      text-align: center;
-      text-decoration: none;
-      outline: none;
-      color: #fff;
-      background-color: #28a745;
-      border: none;
-      border-radius: 10px;
-      box-shadow: 0 9px #999;
-      user-select: none;
+    /* 四足步态：radio 横向布局 */
+    .gait-options {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
     }
-    .gait-toggle-btn:hover { background-color: #218838; }
-    .gait-toggle-btn:active {
-      background-color: #218838;
-      box-shadow: 0 5px #666;
-      transform: translateY(4px);
+    .gait-radio {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border: 2px solid #28a745;
+      background: #fff;
+      color: #1f7a34;
+      border-radius: 999px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: bold;
+      transition: all 0.2s ease;
+    }
+    .gait-radio input {
+      accent-color: #28a745;
+      width: 16px;
+      height: 16px;
+      margin: 0;
+    }
+    .gait-radio.active {
+      background: #28a745;
+      color: #fff;
+    }
+
+    /* 试验性开关（仅四足显示） */
+    .gait-experimental-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 52px;
+      height: 28px;
+    }
+    .switch input { 
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #bbb;
+      transition: .2s;
+      border-radius: 999px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .2s;
+      border-radius: 50%;
+    }
+    .switch input:checked + .slider {
+      background-color: #1E90FF;
+    }
+    .switch input:checked + .slider:before {
+      transform: translateX(24px);
+    }
+    .gait-experimental-text {
+      font-size: 14px;
+      color: #333;
+      font-weight: bold;
     }
 
     /* 页脚署名样式 */
@@ -396,15 +479,18 @@
 </head>
 <body>
   <h1 class="title">
+    <div class="header-actions-left">
+      <button class="settings-btn" onclick="openSettings()" data-zh="⚙️ 设置" data-en="⚙️ Settings">⚙️ 设置</button>
+      <button class="planner-btn" id="plannerBtn" onclick="openPlanner()" title="运动规划" aria-label="运动规划" data-zh="🧭 规划" data-en="🧭 Planner">🧭 规划</button>
+    </div>
     <span id="pageTitle">机器人控制</span>
-    <button class="settings-btn" onclick="openSettings()" data-zh="⚙️ 设置" data-en="⚙️ Settings">⚙️ 设置</button>
-    <button class="lang-switch" onclick="toggleLanguage()">English</button>
+    <div class="header-actions-right">
+      <button class="lang-switch" onclick="toggleLanguage()">English</button>
+    </div>
   </h1>
 
   <center><span align="center" style="text-align: center; display: inline-block;padding: 5px; font-size: 120%;font-weight: bold;"><a style="width:200px; height:50px;" href="/calibration">
-    <button id="CALIBRATEPAGE" type="button" onclick="buttonclick(this);" style="width:200px; height: 30px; Text-align: center;">Calibration: Start | Save</button></a></span></center><br>
-  <center><span align="center" style="text-align: center; display: inline-block;padding: 5px; font-size: 120%;font-weight: bold;"><a style="width:200px; height:50px;" href="/planner">
-    <button id="PLANNERPAGE" type="button" style="width:200px; height: 30px; Text-align: center;" data-zh="运动规划" data-en="Motion Planner">运动规划</button></a></span></center><br>
+    <button id="CALIBRATEPAGE" type="button" onclick="buttonclick(this);" style="width:200px; height: 30px; Text-align: center;" data-zh="校准：开始 | 保存" data-en="Calibration: Start | Save">校准：开始 | 保存</button></a></span></center><br>
 
   <!-- 速度控制区域 -->
   <div class="speed-control">
@@ -420,9 +506,16 @@
   <!-- 步态控制区域（单按钮交互：点击循环切换；六足固定默认步态） -->
   <div class="gait-control" id="gaitControl">
     <div class="gait-label" id="gaitLabel">步态模式</div>
-    <center>
-      <button class="gait-toggle-btn" id="gaitToggleBtn" type="button">步态：默认</button>
-    </center>
+    <!-- 仅四足显示：试验性开关 -->
+    <div class="gait-experimental-row" id="gaitExperimentalRow" style="display:none;">
+      <label class="switch" title="Experimental gaits">
+        <input type="checkbox" id="gaitExperimentalToggle">
+        <span class="slider"></span>
+      </label>
+      <span class="gait-experimental-text" id="gaitExperimentalText" data-zh="试验性" data-en="Experimental">试验性</span>
+    </div>
+    <!-- 仅四足显示：radio button 选择 -->
+    <div class="gait-options" id="gaitOptions"></div>
   </div>
   
   <div class="grid-container">
@@ -563,9 +656,10 @@
 
           // 兼容：固件也可能返回 {status:"error", message:"..."}
           if (msg && msg.status === 'error' && msg.message) {
-            if (String(msg.message).indexOf('电量低') !== -1) {
+            // 跟随固件当前消息：精确匹配低电量提示
+            if (String(msg.message) === lowBatteryMessages.zh) {
               lowBatteryLatched = true;
-              alert(msg.message);
+              alert(msg.message || getLowBatteryMessage());
               return;
             }
           }
@@ -607,10 +701,10 @@
       }
     }
 
-    // 步态控制（四足: 0/1/2/3 循环；六足: 仅 0）
+    // 步态控制（仅四足需要；六足不显示）
     let robotType = 'hexa';
-    let supportedGaits = [0];
     let currentGait = 3; // 四足默认匍匐(Creep)
+    let experimentalGaitsEnabled = false; // 默认不打开试验性
     const gaitNames = {
       0: { zh: '小跑', en: 'Trot' },
       1: { zh: '慢走', en: 'Walk' },
@@ -618,27 +712,93 @@
       3: { zh: '匍匐', en: 'Creep' }
     };
 
-    function getGaitPrefix() {
-      return currentLang === 'zh' ? '步态：' : 'Gait: ';
+    const GAITS_STABLE = [3, 1];      // 默认仅开放：Creep + Walk
+    const GAITS_ALL = [3, 1, 0, 2];   // 打开试验性：Creep, Walk, Trot, Gallop（按体验排序）
+
+    function getSupportedGaitsForQuad() {
+      return experimentalGaitsEnabled ? GAITS_ALL : GAITS_STABLE;
     }
 
-    function getDefaultGaitText() {
-      return currentLang === 'zh' ? '默认' : 'Default';
-    }
-
-    function formatGaitButtonText(gaitMode) {
-      if (robotType !== 'quad') {
-        // 六足：只有一个步态，不需要切换文字
-        return getGaitPrefix() + getDefaultGaitText();
+    function normalizeCurrentGaitForQuad() {
+      const supported = getSupportedGaitsForQuad();
+      if (!supported.includes(currentGait)) {
+        currentGait = 3; // 回退到 creep
       }
-      const name = gaitNames[gaitMode] ? gaitNames[gaitMode][currentLang] : gaitNames[0][currentLang];
-      return getGaitPrefix() + name;
     }
 
-    function renderGaitButton() {
-      const btn = document.getElementById('gaitToggleBtn');
-      if (!btn) return;
-      btn.textContent = formatGaitButtonText(currentGait);
+    function renderGaitRadios() {
+      const optionsEl = document.getElementById('gaitOptions');
+      if (!optionsEl) return;
+      optionsEl.innerHTML = '';
+
+      if (robotType !== 'quad') return; // 六足不渲染
+
+      normalizeCurrentGaitForQuad();
+
+      const supported = getSupportedGaitsForQuad();
+      supported.forEach((g) => {
+        const label = document.createElement('label');
+        label.className = 'gait-radio' + (g === currentGait ? ' active' : '');
+        label.setAttribute('data-gait', String(g));
+
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = 'gaitMode';
+        input.value = String(g);
+        input.checked = (g === currentGait);
+
+        const span = document.createElement('span');
+        span.textContent = gaitNames[g] ? gaitNames[g][currentLang] : String(g);
+
+        label.appendChild(input);
+        label.appendChild(span);
+        optionsEl.appendChild(label);
+
+        input.addEventListener('change', () => {
+          if (!input.checked) return;
+
+          // 约束：固件侧仅允许在待机模式切换步态
+          // 体验优化：先下发待机，再下发 gaitMode
+          sendCommand(0);
+          currentGait = g;
+
+          try {
+            window.localStorage.setItem('gaitMode', String(currentGait));
+          } catch (_) {
+            // ignore
+          }
+
+          // 更新 active 样式
+          const all = optionsEl.querySelectorAll('.gait-radio');
+          all.forEach((el) => el.classList.remove('active'));
+          label.classList.add('active');
+
+          setTimeout(() => sendGaitMode(currentGait), 180);
+        });
+      });
+    }
+
+    function renderGaitExperimentalToggle() {
+      const row = document.getElementById('gaitExperimentalRow');
+      const toggle = document.getElementById('gaitExperimentalToggle');
+      const text = document.getElementById('gaitExperimentalText');
+      if (!row || !toggle || !text) return;
+
+      if (robotType !== 'quad') {
+        row.style.display = 'none';
+        return;
+      }
+
+      row.style.display = 'flex';
+      toggle.checked = !!experimentalGaitsEnabled;
+      text.textContent = text.getAttribute('data-' + currentLang) || text.textContent;
+    }
+
+    function updateGaitControlVisibility() {
+      const container = document.getElementById('gaitControl');
+      if (!container) return;
+      // 六足不需要步态切换入口
+      container.style.display = (robotType === 'quad') ? 'block' : 'none';
     }
 
     function initSpeedControl() {
@@ -666,9 +826,6 @@
     }
 
     function initGaitControl() {
-      const btn = document.getElementById('gaitToggleBtn');
-      if (!btn) return;
-
       // 恢复本地缓存（仅四足生效）
       try {
         const saved = window.localStorage.getItem('gaitMode');
@@ -680,34 +837,32 @@
         // ignore
       }
 
-      renderGaitButton();
+      try {
+        const savedExp = window.localStorage.getItem('experimentalGaits');
+        if (savedExp === '1' || savedExp === 'true') experimentalGaitsEnabled = true;
+        if (savedExp === '0' || savedExp === 'false') experimentalGaitsEnabled = false;
+      } catch (_) {
+        // ignore
+      }
 
-      btn.addEventListener('click', function() {
-        // 六足：只有一个步态，不切换文本；但允许点击发送一次 gaitMode=0（固件会忽略/默认）
-        if (!supportedGaits || supportedGaits.length <= 1 || robotType !== 'quad') {
-          currentGait = 0;
-          renderGaitButton();
-          sendGaitMode(0);
-          return;
-        }
+      const toggle = document.getElementById('gaitExperimentalToggle');
+      if (toggle) {
+        toggle.addEventListener('change', () => {
+          experimentalGaitsEnabled = !!toggle.checked;
+          try {
+            window.localStorage.setItem('experimentalGaits', experimentalGaitsEnabled ? '1' : '0');
+          } catch (_) {
+            // ignore
+          }
+          renderGaitExperimentalToggle();
+          renderGaitRadios();
+        });
+      }
 
-        // 约束：固件侧仅允许在待机模式切换步态
-        // 为提升体验：点击步态按钮时，先下发待机，再下发 gaitMode
-        sendCommand(0);
-
-        const idx = supportedGaits.indexOf(currentGait);
-        const next = supportedGaits[(idx >= 0 ? idx + 1 : 0) % supportedGaits.length];
-        currentGait = next;
-
-        try {
-          window.localStorage.setItem('gaitMode', String(currentGait));
-        } catch (_) {
-          // ignore
-        }
-
-        renderGaitButton();
-        setTimeout(() => sendGaitMode(currentGait), 180);
-      });
+      // 先按默认 robotType 渲染一次（后续 loadCaps 会再次刷新）
+      updateGaitControlVisibility();
+      renderGaitExperimentalToggle();
+      renderGaitRadios();
     }
 
     // 语言切换功能
@@ -749,7 +904,8 @@
       // 更新步态控制区域文本
       const gaitLabelEl = document.getElementById('gaitLabel');
       if (gaitLabelEl) gaitLabelEl.textContent = langTexts.gaitLabel[currentLang];
-      renderGaitButton();
+      renderGaitExperimentalToggle();
+      renderGaitRadios();
       
       // 更新速度档位按钮文本
       const speedButtons = document.querySelectorAll('.speed-btn[data-zh][data-en]');
@@ -762,11 +918,26 @@
       buttons.forEach(button => {
         button.textContent = button.getAttribute('data-' + currentLang);
       });
+
+      // 更新校准入口按钮文本
+      const calibrateBtn = document.getElementById('CALIBRATEPAGE');
+      if (calibrateBtn) {
+        const t = calibrateBtn.getAttribute('data-' + currentLang);
+        if (t) calibrateBtn.textContent = t;
+      }
       
       // 更新设置按钮文本
       const settingsBtn = document.querySelector('.settings-btn');
       if (settingsBtn) {
         settingsBtn.textContent = langTexts.settingsBtn[currentLang];
+      }
+
+      // 更新“运动规划器”入口标题（图标按钮无需切换文本）
+      const plannerBtn = document.getElementById('plannerBtn');
+      if (plannerBtn) {
+        plannerBtn.textContent = plannerBtn.getAttribute('data-' + currentLang) || plannerBtn.textContent;
+        plannerBtn.title = (currentLang === 'zh') ? '运动规划' : 'Motion Planner';
+        plannerBtn.setAttribute('aria-label', plannerBtn.title);
       }
       
       // 更新页脚文本
@@ -800,18 +971,21 @@
         const data = await resp.json();
         const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
         robotType = type;
-        supportedGaits = (type === 'quad') ? [0, 1, 2, 3] : [0];
         lowBatteryLatched = !!(data && data.power && data.power.lowBatteryLatched);
 
-        if (type !== 'quad') {
-          currentGait = 0;
-        } else {
+        if (type === 'quad') {
           // 四足：默认步态为 creep(3)，若本地缓存非法则回退到默认
           if (typeof currentGait !== 'number' || Number.isNaN(currentGait) || currentGait < 0 || currentGait > 3) {
             currentGait = 3;
           }
+        } else {
+          // 六足：不需要步态 UI
+          currentGait = 0;
         }
-        renderGaitButton();
+
+        updateGaitControlVisibility();
+        renderGaitExperimentalToggle();
+        renderGaitRadios();
         if (type === 'quad') {
           langTexts.footerTitle = { zh: '开源项目 · NodeQuadMini 四足机器人', en: 'Open Source · NodeQuadMini Quadruped Robot' };
         } else {
@@ -827,6 +1001,10 @@
     function openSettings() {
       document.getElementById('settingsModal').style.display = 'block';
       loadAPConfig();
+    }
+
+    function openPlanner() {
+      window.location.href = '/planner';
     }
 
     function closeSettings() {
@@ -984,6 +1162,12 @@
       initGaitControl();
       // 默认显示中文，无需调用toggleLanguage
       updateModalTexts();
+      // 初始化标题栏按钮 title
+      const plannerBtn = document.getElementById('plannerBtn');
+      if (plannerBtn) {
+        plannerBtn.title = '运动规划';
+        plannerBtn.setAttribute('aria-label', '运动规划');
+      }
       await loadCapsAndUpdateFooter();
       
       // 检查是否有待确认的配置

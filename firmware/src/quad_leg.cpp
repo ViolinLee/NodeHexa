@@ -95,6 +95,10 @@ namespace quadruped {
 
         for (int i = 0; i < 3; i++)
             servos_[i] = new ServoQuad(legIndex, i);
+
+        // 避免首次 moveTip() 用未初始化的 tipPos_ 做相等比较
+        tipPos_ = hexapod::Point3D(0, 0, 0);
+        tipPosLocal_ = hexapod::Point3D(0, 0, 0);
     }
 
     Leg::~Leg() {

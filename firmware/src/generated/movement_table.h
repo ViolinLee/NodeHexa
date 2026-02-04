@@ -226,7 +226,7 @@ const Locations rotatex_paths[] {
      {P6X*1.00 + P6Y*0.00 + P6Z*0.00 + 0.00, P6X*0.00 + P6Y*0.98 + P6Z*-0.21 + 3.00, P6X*0.00 + P6Y*0.21 + P6Z*0.98 + 0.00}},
 };
 const int rotatex_entries[] { 0,10 };
-const MovementTable rotatex_table {rotatex_paths, 4, 50, rotatex_entries, 2 };
+const MovementTable rotatex_table {rotatex_paths, 20, 50, rotatex_entries, 2 };
 
 const Locations rotatey_paths[] {
     {{P1X*0.97 + P1Y*0.00 + P1Z*0.26 + 0.00, P1X*0.00 + P1Y*1.00 + P1Z*0.00 + 0.00, P1X*-0.26 + P1Y*0.00 + P1Z*0.97 + 0.00}, 
@@ -351,7 +351,7 @@ const Locations rotatey_paths[] {
      {P6X*0.98 + P6Y*0.00 + P6Z*0.21 + 3.00, P6X*0.00 + P6Y*1.00 + P6Z*0.00 + 0.00, P6X*-0.21 + P6Y*0.00 + P6Z*0.98 + 0.00}},
 };
 const int rotatey_entries[] { 0,10 };
-const MovementTable rotatey_table {rotatey_paths, 4, 50, rotatey_entries, 2 };
+const MovementTable rotatey_table {rotatey_paths, 20, 50, rotatey_entries, 2 };
 
 const Locations rotatez_paths[] {
     {{P1X*0.98 + P1Y*0.00 + P1Z*0.22 + 0.00, P1X*0.00 + P1Y*1.00 + P1Z*0.00 + 0.00, P1X*-0.22 + P1Y*0.00 + P1Z*0.98 + 0.00}, 
@@ -476,7 +476,7 @@ const Locations rotatez_paths[] {
      {P6X*0.98 + P6Y*-0.01 + P6Z*0.21 + 0.00, P6X*0.00 + P6Y*1.00 + P6Z*0.07 + 0.00, P6X*-0.21 + P6Y*-0.07 + P6Z*0.98 + 0.00}},
 };
 const int rotatez_entries[] { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19 };
-const MovementTable rotatez_table {rotatez_paths, 4, 50, rotatez_entries, 20 };
+const MovementTable rotatez_table {rotatez_paths, 20, 50, rotatez_entries, 20 };
 
 const Locations shiftleft_paths[] {
     {{P1X+(-0.00), P1Y+(0.00), P1Z+(25.00)}, {P2X+(0.00), P2Y+(0.00), P2Z+(0.00)}, {P3X+(-0.00), P3Y+(0.00), P3Z+(25.00)}, {P4X+(0.00), P4Y+(0.00), P4Z+(0.00)}, {P5X+(-0.00), P5Y+(0.00), P5Z+(25.00)}, {P6X+(0.00), P6Y+(0.00), P6Z+(0.00)}},
@@ -701,7 +701,7 @@ const Locations twist_paths[] {
      {P6X*1.00 + P6Y*0.07 + P6Z*-0.00 + 0.00, P6X*-0.07 + P6Y*0.99 + P6Z*-0.09 + 0.00, P6X*-0.00 + P6Y*0.09 + P6Z*1.00 + 0.00}},
 };
 const int twist_entries[] { 0,10 };
-const MovementTable twist_table {twist_paths, 4, 50, twist_entries, 2 };
+const MovementTable twist_table {twist_paths, 20, 50, twist_entries, 2 };
 }
 
 const MovementTable& backwardTable() {

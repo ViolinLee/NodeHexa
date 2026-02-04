@@ -174,7 +174,9 @@ namespace hexapod {
             JsonArray legData = doc[leg];
             for (int j = 0; j < 3; j++) {
                 int param = legData[j];
-                legs_[i].get(j)->setParameter(param, true);
+                // 上电加载校准参数时不要立刻输出 PWM（否则会先打一帧 angle_=0 的位置，造成关节“抽搐一下”）。
+                // 等后续 standby/动作下发时再统一 setAngle。
+                legs_[i].get(j)->setParameter(param, false);
             }
         }
 

@@ -990,10 +990,8 @@ static bool buildActionFromJson(JsonVariantConst obj, motion::Action& action, St
   }
 
   if (obj.containsKey("durationMs")) {
-    action.unit = motion::Unit::DurationMs;
-    action.durationMs = obj["durationMs"].as<uint32_t>();
-    action.value = action.durationMs;
-    return action.durationMs > 0;
+    error = "durationMs is not supported (use cycles/steps/distance/angle)";
+    return false;
   }
 
   if (obj.containsKey("cycles")) {
@@ -1009,7 +1007,7 @@ static bool buildActionFromJson(JsonVariantConst obj, motion::Action& action, St
     action.unit = motion::Unit::Angle;
     action.value = obj["angle"].as<float>();
   } else {
-    error = "missing duration/cycles/steps/distance/angle";
+    error = "missing cycles/steps/distance/angle";
     return false;
   }
 
@@ -1024,8 +1022,7 @@ static bool hasActionParameters(JsonVariantConst json) {
   return json.containsKey("cycles")
       || json.containsKey("steps")
       || json.containsKey("distance")
-      || json.containsKey("angle")
-      || json.containsKey("durationMs");
+      || json.containsKey("angle");
 }
 
 static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) {
