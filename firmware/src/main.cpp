@@ -30,6 +30,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "calibration.h"
 #include "PinDefines.h"
 #include "ap_config.h"
+#include "device_settings.h"
 #include "robot.h"
 #include "motion_controller.h"
 
@@ -110,6 +111,10 @@ void handleApConfigReset(AsyncWebServerRequest *request);
 // 最小能力探测接口（仅返回机型与腿数）
 void handleCapsGet(AsyncWebServerRequest *request);
 
+// 通用设置接口（用于承载未来更多配置项）
+void handleSettingsGet(AsyncWebServerRequest *request);
+void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+
 void BatteryMonitorTask(void *pvParameters);
 void LEDControllerTask(void *pvParameters);
 
@@ -168,6 +173,10 @@ void setup() {
   apconfig::init();
   apconfig::printCurrentAPInfo(Serial);
 
+  // 读取设备设置（NVS）
+  devsettings::init();
+  Serial.printf("Power: lowBatteryProtectionEnabled=%s\n", devsettings::isLowBatteryProtectionEnabled() ? "true" : "false");
+
   // 初始化Web服务
   server.on("/", HTTP_GET, handleRoot);
   server.on("/planner", HTTP_GET, handleMotionPlanner);
@@ -197,6 +206,13 @@ void setup() {
 
   // UI 能力探测（用于校准页适配四足/六足）
   server.on("/api/caps", HTTP_GET, handleCapsGet);
+
+  // 通用设置接口（承载 WiFi 之外的设置项）
+  server.on("/api/settings", HTTP_GET, handleSettingsGet);
+  server.on("/api/settings", HTTP_POST,
+    [](AsyncWebServerRequest *request) {},
+    [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {},
+    handleSettingsPostBody);
 
   wsRoverCmd.onEvent(onRobotCmdWebSocketEvent);
   server.addHandler(&wsRoverCmd);
@@ -336,7 +352,8 @@ void setting_loop() {
 */
 void sendHtmlFromSpiffs(AsyncWebServerRequest *request, const char *path) {
   if (SPIFFS.exists(path)) {
-    request->send(SPIFFS, path, "text/html");
+    // 显式声明 UTF-8，避免不同浏览器对中文编码推断不一致导致乱码
+    request->send(SPIFFS, path, "text/html; charset=utf-8");
   } else {
     String message = "File not found: ";
     message += path;
@@ -434,12 +451,13 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 
 /* UI 能力探测：仅返回 robot.type + legCount */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<192> doc;
+  StaticJsonDocument<256> doc;
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = kRobotType;
   robot["legCount"] = kRobotLegCount;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
+  power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
 
   String responseStr;
   serializeJson(doc, responseStr);
@@ -580,6 +598,64 @@ void handleApConfigReset(AsyncWebServerRequest *request) {
   // 延迟重启，确保HTTP响应发出
   apconfig::requestReboot(3000);
   Serial.println("AP Config: Reboot scheduled in 3000 ms");
+}
+
+/* 通用设置接口：GET/POST /api/settings
+ * - GET: 返回当前设置
+ * - POST: 仅允许更新已支持的字段（当前：lowBatteryProtectionEnabled）
+ */
+void handleSettingsGet(AsyncWebServerRequest *request) {
+  StaticJsonDocument<192> json;
+  json["status"] = "success";
+  JsonObject power = json.createNestedObject("power");
+  power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
+  String response;
+  serializeJson(json, response);
+  request->send(200, "application/json", response);
+}
+
+void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+  (void)index;
+  (void)total;
+  String body = String((char*)data).substring(0, len);
+
+  StaticJsonDocument<256> doc;
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+    return;
+  }
+
+  // 仅接受唯一格式：{ "power": { "lowBatteryProtectionEnabled": true } }
+  if (!doc.containsKey("power") || !doc["power"].is<JsonObjectConst>()) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: missing power object\"}");
+    return;
+  }
+
+  JsonObjectConst p = doc["power"].as<JsonObjectConst>();
+  if (!p.containsKey("lowBatteryProtectionEnabled")) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: missing power.lowBatteryProtectionEnabled\"}");
+    return;
+  }
+
+  const bool enabled = p["lowBatteryProtectionEnabled"].as<bool>();
+  if (!devsettings::setLowBatteryProtectionEnabled(enabled)) {
+    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to persist settings\"}");
+    return;
+  }
+
+  // 若重新开启保护且此前已锁存，则允许再次执行一次“强制待机/通知”
+  if (devsettings::isLowBatteryProtectionEnabled()) {
+    lowBatteryHandled = false;
+  }
+
+  StaticJsonDocument<192> resp;
+  resp["status"] = "success";
+  JsonObject power = resp.createNestedObject("power");
+  power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
+  String response;
+  serializeJson(resp, response);
+  request->send(200, "application/json", response);
 }
 
 /* 机器人指令回调处理
@@ -833,6 +909,10 @@ void clearMovementFlag() {
 }
 
 static bool isLowBatteryLatched() {
+  const bool protectEnabled = devsettings::isLowBatteryProtectionEnabled();
+  if (!protectEnabled) {
+    return false;
+  }
   if (!voltageMutex) {
     return lowBatteryLatched;
   }

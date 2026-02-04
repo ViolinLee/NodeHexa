@@ -1,12 +1,13 @@
 <!DOCTYPE HTML>
-<html>
+<html lang="zh">
 <head>
+  <meta charset="UTF-8">
   <style>
     .title {
       text-align: center;
       position: relative;
     }
-    .lang-switch, .settings-btn, .planner-btn {
+    .lang-switch, .wifi-btn, .settings-btn, .planner-btn {
       background-color: #1E90FF;
       color: white;
       border: none;
@@ -41,11 +42,11 @@
       justify-content: center;
       gap: 6px;
     }
-    .lang-switch:hover, .settings-btn:hover {
+    .lang-switch:hover, .wifi-btn:hover, .settings-btn:hover {
       background-color: #0b7dda;
     }
     .planner-btn:hover { background-color: #0b7dda; }
-    .lang-switch:active, .settings-btn:active {
+    .lang-switch:active, .wifi-btn:active, .settings-btn:active {
       box-shadow: 0 2px #666;
       transform: translateY(-48%);
     }
@@ -480,7 +481,8 @@
 <body>
   <h1 class="title">
     <div class="header-actions-left">
-      <button class="settings-btn" onclick="openSettings()" data-zh="⚙️ 设置" data-en="⚙️ Settings">⚙️ 设置</button>
+      <button class="wifi-btn" onclick="openWifiSettings()" data-zh="📶 WiFi" data-en="📶 WiFi">📶 WiFi</button>
+      <button class="settings-btn" onclick="openOtherSettings()" data-zh="⚙️ 设置" data-en="⚙️ Settings">⚙️ 设置</button>
       <button class="planner-btn" id="plannerBtn" onclick="openPlanner()" title="运动规划" aria-label="运动规划" data-zh="🧭 规划" data-en="🧭 Planner">🧭 规划</button>
     </div>
     <span id="pageTitle">机器人控制</span>
@@ -545,7 +547,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <span class="modal-title" id="modalTitle">WiFi AP 配置</span>
-        <span class="close" onclick="closeSettings()">&times;</span>
+        <span class="close" onclick="closeWifiSettings()">&times;</span>
       </div>
       <div id="settingsForm">
         <div class="form-group">
@@ -562,7 +564,7 @@
         </div>
         <div class="form-actions">
           <button class="btn-primary" onclick="saveAPConfig()" id="btnSave">保存</button>
-          <button class="btn-secondary" onclick="closeSettings()" id="btnCancel">取消</button>
+          <button class="btn-secondary" onclick="closeWifiSettings()" id="btnCancel">取消</button>
         </div>
         <button class="btn-danger" onclick="resetAPConfig()" id="btnReset">恢复默认配置</button>
         <div class="status-message" id="statusMessage"></div>
@@ -580,6 +582,29 @@
             连接后访问 http://192.168.4.1 完成确认
           </p>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 其他设置模态框（预留未来扩展项） -->
+  <div id="otherSettingsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="otherModalTitle">设置</span>
+        <span class="close" onclick="closeOtherSettings()">&times;</span>
+      </div>
+      <div id="otherSettingsForm">
+        <div class="form-group">
+          <label class="form-label" id="labelLowBatteryProtect">低电量保护</label>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+            <div style="font-size:12px; color:#666;" id="hintLowBatteryProtect">默认开启；关闭后低电量状态也允许运行</div>
+            <label class="switch" title="Low battery protection">
+              <input type="checkbox" id="lowBatteryProtectToggle">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="status-message" id="otherStatusMessage"></div>
       </div>
     </div>
   </div>
@@ -617,6 +642,8 @@
 
     // 低电量锁存：一旦触发，直到重启才会恢复
     let lowBatteryLatched = false;
+    // 低电量保护开关：默认开启；关闭后不再屏蔽操作
+    let lowBatteryProtectionEnabled = true;
     const lowBatteryMessages = {
       zh: '电量低，请关闭电源后进行充电！',
       en: 'Low battery. Please power off and recharge.'
@@ -627,7 +654,7 @@
     }
 
     function guardLowBattery() {
-      if (lowBatteryLatched) {
+      if (lowBatteryProtectionEnabled && lowBatteryLatched) {
         alert(getLowBatteryMessage());
         return true;
       }
@@ -649,8 +676,10 @@
 
           // 低电量事件：固件锁存后主动通知
           if (msg && msg.event === 'lowBattery') {
-            lowBatteryLatched = true;
-            alert(msg.message || getLowBatteryMessage());
+            if (lowBatteryProtectionEnabled) {
+              lowBatteryLatched = true;
+              alert(msg.message || getLowBatteryMessage());
+            }
             return;
           }
 
@@ -658,8 +687,10 @@
           if (msg && msg.status === 'error' && msg.message) {
             // 跟随固件当前消息：精确匹配低电量提示
             if (String(msg.message) === lowBatteryMessages.zh) {
-              lowBatteryLatched = true;
-              alert(msg.message || getLowBatteryMessage());
+              if (lowBatteryProtectionEnabled) {
+                lowBatteryLatched = true;
+                alert(msg.message || getLowBatteryMessage());
+              }
               return;
             }
           }
@@ -878,6 +909,7 @@
       githubText: { zh: 'GitHub: ViolinLee', en: 'GitHub: ViolinLee' },
       wechatText: { zh: '公众号: RoboticsCV', en: 'WeChat: RoboticsCV' },
       settingsBtn: { zh: '⚙️ 设置', en: '⚙️ Settings' },
+      wifiBtn: { zh: '📶 WiFi', en: '📶 WiFi' },
       modalTitle: { zh: 'WiFi AP 配置', en: 'WiFi AP Settings' },
       labelSSID: { zh: 'AP 名称 (SSID)', en: 'AP Name (SSID)' },
       labelPassword: { zh: '密码 (8-63字符，留空为开放网络)', en: 'Password (8-63 chars, empty for open network)' },
@@ -886,7 +918,10 @@
       btnReset: { zh: '恢复默认配置', en: 'Reset to Default' },
       currentConfig: { zh: '当前配置：', en: 'Current Config: ' },
       pendingMsg: { zh: '设备将在3秒后重启，请连接到新的AP：', en: 'Device will reboot in 3 seconds, please connect to new AP:' },
-      pendingHint: { zh: '连接后访问 http://192.168.4.1 完成确认', en: 'Visit http://192.168.4.1 after connecting to confirm' }
+      pendingHint: { zh: '连接后访问 http://192.168.4.1 完成确认', en: 'Visit http://192.168.4.1 after connecting to confirm' },
+      otherModalTitle: { zh: '设置', en: 'Settings' },
+      labelLowBatteryProtect: { zh: '低电量保护', en: 'Low battery protection' },
+      hintLowBatteryProtect: { zh: '默认开启；关闭后低电量状态也允许运行', en: 'Enabled by default. Turn off to allow running under low battery.' }
     };
 
     function toggleLanguage() {
@@ -932,6 +967,12 @@
         settingsBtn.textContent = langTexts.settingsBtn[currentLang];
       }
 
+      // 更新 WiFi 按钮文本
+      const wifiBtn = document.querySelector('.wifi-btn');
+      if (wifiBtn) {
+        wifiBtn.textContent = langTexts.wifiBtn[currentLang];
+      }
+
       // 更新“运动规划器”入口标题（图标按钮无需切换文本）
       const plannerBtn = document.getElementById('plannerBtn');
       if (plannerBtn) {
@@ -963,6 +1004,14 @@
       if (currentInfo) {
         currentInfo.innerHTML = '<strong>' + langTexts.currentConfig[currentLang] + '</strong><br><span id="currentSSID">加载中...</span>';
       }
+
+      // 其他设置 modal
+      const otherTitle = document.getElementById('otherModalTitle');
+      if (otherTitle) otherTitle.textContent = langTexts.otherModalTitle[currentLang];
+      const lbLabel = document.getElementById('labelLowBatteryProtect');
+      if (lbLabel) lbLabel.textContent = langTexts.labelLowBatteryProtect[currentLang];
+      const lbHint = document.getElementById('hintLowBatteryProtect');
+      if (lbHint) lbHint.textContent = langTexts.hintLowBatteryProtect[currentLang];
     }
 
     async function loadCapsAndUpdateFooter() {
@@ -972,6 +1021,9 @@
         const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
         robotType = type;
         lowBatteryLatched = !!(data && data.power && data.power.lowBatteryLatched);
+        if (data && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
+          lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
+        }
 
         if (type === 'quad') {
           // 四足：默认步态为 creep(3)，若本地缓存非法则回退到默认
@@ -998,7 +1050,7 @@
     }
 
     // AP 配置功能
-    function openSettings() {
+    function openWifiSettings() {
       document.getElementById('settingsModal').style.display = 'block';
       loadAPConfig();
     }
@@ -1007,11 +1059,84 @@
       window.location.href = '/planner';
     }
 
-    function closeSettings() {
+    function closeWifiSettings() {
       document.getElementById('settingsModal').style.display = 'none';
       document.getElementById('settingsForm').style.display = 'block';
       document.getElementById('pendingInfo').style.display = 'none';
       document.getElementById('statusMessage').style.display = 'none';
+    }
+
+    // 其他设置功能（预留扩展点）
+    function openOtherSettings() {
+      document.getElementById('otherSettingsModal').style.display = 'block';
+      loadOtherSettings();
+    }
+
+    function closeOtherSettings() {
+      document.getElementById('otherSettingsModal').style.display = 'none';
+      const statusEl = document.getElementById('otherStatusMessage');
+      if (statusEl) statusEl.style.display = 'none';
+    }
+
+    async function loadOtherSettings() {
+      const toggle = document.getElementById('lowBatteryProtectToggle');
+      if (!toggle) return;
+
+      // 优先读取后端设置接口，失败则回退到 caps
+      try {
+        const resp = await fetch('/api/settings', { cache: 'no-store' });
+        const data = await resp.json();
+        if (data && data.status === 'success' && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
+          lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
+        }
+      } catch (_) {
+        // ignore
+      }
+      toggle.checked = !!lowBatteryProtectionEnabled;
+    }
+
+    async function setLowBatteryProtectionEnabled(enabled) {
+      const statusEl = document.getElementById('otherStatusMessage');
+      if (statusEl) {
+        statusEl.className = 'status-message';
+        statusEl.style.display = 'none';
+      }
+
+      try {
+        const resp = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ power: { lowBatteryProtectionEnabled: !!enabled } })
+        });
+        const data = await resp.json();
+        if (data && data.status === 'success' && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
+          lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
+          if (!lowBatteryProtectionEnabled) {
+            // 关闭保护后，立即解锁前端（不再阻止任何操作）
+            lowBatteryLatched = false;
+          } else {
+            // 重新开启时刷新一下 caps（若固件已锁存，会立即反映）
+            await loadCapsAndUpdateFooter();
+          }
+
+          if (statusEl) {
+            statusEl.textContent = (currentLang === 'zh') ? '已保存' : 'Saved';
+            statusEl.className = 'status-message status-success';
+            statusEl.style.display = 'block';
+            setTimeout(() => { statusEl.style.display = 'none'; }, 2500);
+          }
+        } else {
+          throw new Error((data && data.message) ? data.message : 'Unknown error');
+        }
+      } catch (e) {
+        if (statusEl) {
+          statusEl.textContent = (currentLang === 'zh')
+            ? ('保存失败: ' + (e && e.message ? e.message : '网络错误'))
+            : ('Save failed: ' + (e && e.message ? e.message : 'Network error'));
+          statusEl.className = 'status-message status-error';
+          statusEl.style.display = 'block';
+        }
+      }
     }
 
     function loadAPConfig() {
@@ -1120,7 +1245,7 @@
           if (data.status === 'success') {
             showStatus(currentLang === 'zh' ? '已恢复默认配置，设备将重启' : 'Reset to default, device will reboot', 'success');
             setTimeout(() => {
-              closeSettings();
+              closeWifiSettings();
             }, 2000);
           } else {
             showStatus('重置失败: ' + (data.message || '未知错误'), 'error');
@@ -1130,7 +1255,7 @@
           // 将网络失败/超时视为设备正在重启，给出正向提示，避免“Failed to fetch”误导
           showStatus(currentLang === 'zh' ? '已恢复默认配置，设备将重启' : 'Reset to default, device will reboot', 'success');
           setTimeout(() => {
-            closeSettings();
+            closeWifiSettings();
           }, 2000);
         })
         .finally(() => {
@@ -1150,9 +1275,13 @@
 
     // 点击模态框外部关闭
     window.onclick = function(event) {
-      const modal = document.getElementById('settingsModal');
-      if (event.target === modal) {
-        closeSettings();
+      const wifiModal = document.getElementById('settingsModal');
+      if (event.target === wifiModal) {
+        closeWifiSettings();
+      }
+      const otherModal = document.getElementById('otherSettingsModal');
+      if (event.target === otherModal) {
+        closeOtherSettings();
       }
     }
 
@@ -1169,6 +1298,15 @@
         plannerBtn.setAttribute('aria-label', '运动规划');
       }
       await loadCapsAndUpdateFooter();
+
+      // 绑定“低电量保护”开关
+      const lbToggle = document.getElementById('lowBatteryProtectToggle');
+      if (lbToggle) {
+        lbToggle.checked = !!lowBatteryProtectionEnabled;
+        lbToggle.addEventListener('change', () => {
+          setLowBatteryProtectionEnabled(!!lbToggle.checked);
+        });
+      }
       
       // 检查是否有待确认的配置
       fetch('/api/ap-config')

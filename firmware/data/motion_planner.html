@@ -234,6 +234,7 @@
     const MAX_SEQUENCE_ACTIONS = 5;
     let sequenceActions = [];
     let lowBatteryLatched = false;
+    let lowBatteryProtectionEnabled = true;
     let robotCaps = { type: 'hexa', legCount: 6 };
     let effectiveMovementOptions = [];
 
@@ -247,7 +248,7 @@
     }
 
     function guardLowBattery() {
-      if (lowBatteryLatched) {
+      if (lowBatteryProtectionEnabled && lowBatteryLatched) {
         showAlert(getLowBatteryMessage());
         return true;
       }
@@ -259,6 +260,9 @@
         const resp = await fetch('/api/caps', { cache: 'no-store' });
         const data = await resp.json();
         lowBatteryLatched = !!(data && data.power && data.power.lowBatteryLatched);
+        if (data && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
+          lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
+        }
         if (data && data.robot) {
           robotCaps.type = data.robot.type || robotCaps.type;
           robotCaps.legCount = data.robot.legCount || robotCaps.legCount;
@@ -383,14 +387,18 @@
         try {
           const msg = JSON.parse(event.data);
           if (msg && msg.event === 'lowBattery') {
-            lowBatteryLatched = true;
-            showAlert(msg.message || getLowBatteryMessage());
+            if (lowBatteryProtectionEnabled) {
+              lowBatteryLatched = true;
+              showAlert(msg.message || getLowBatteryMessage());
+            }
             return;
           }
           if (msg && msg.status === 'error' && msg.message) {
             if (String(msg.message).indexOf('电量低') !== -1) {
-              lowBatteryLatched = true;
-              showAlert(msg.message);
+              if (lowBatteryProtectionEnabled) {
+                lowBatteryLatched = true;
+                showAlert(msg.message);
+              }
             }
           }
         } catch (_) {
