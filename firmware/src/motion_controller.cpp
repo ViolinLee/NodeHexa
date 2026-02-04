@@ -95,14 +95,6 @@ void MotionController::onLoopTick(MovementMode executedMode, uint32_t elapsedMs)
         if (active_.completedCycles >= active_.targetCycles - 1e-3f) {
             finishAction();
         }
-        return;
-    }
-
-    if (active_.targetDurationMs > 0) {
-        active_.elapsedDurationMs += elapsedMs;
-        if (active_.elapsedDurationMs >= active_.targetDurationMs) {
-            finishAction();
-        }
     }
 }
 
@@ -117,16 +109,10 @@ void MotionController::startNextAction() {
 void MotionController::startAction(const Action& action) {
     active_.action = action;
     active_.completedCycles = 0.0f;
-    active_.elapsedDurationMs = 0;
     active_.targetCycles = 0.0f;
-    active_.targetDurationMs = 0;
     active_.inUse = true;
 
-    if (action.unit == Unit::DurationMs) {
-        active_.targetDurationMs = (action.durationMs > 0)
-            ? action.durationMs
-            : static_cast<uint32_t>(action.value);
-    } else if (action.unit != Unit::Continuous) {
+    if (action.unit != Unit::Continuous) {
         active_.targetCycles = convertToCycles(action);
     }
 
@@ -140,8 +126,8 @@ void MotionController::startAction(const Action& action) {
     }
 
     char buffer[120];
-    snprintf(buffer, sizeof(buffer), "[MotionController] Start action mode=%d unit=%d targetCycles=%.2f targetDuration=%u sequence=%u",
-             action.mode, static_cast<int>(action.unit), active_.targetCycles, active_.targetDurationMs, action.sequenceId);
+    snprintf(buffer, sizeof(buffer), "[MotionController] Start action mode=%d unit=%d targetCycles=%.2f sequence=%u",
+             action.mode, static_cast<int>(action.unit), active_.targetCycles, action.sequenceId);
     LOG_INFO(buffer);
 }
 

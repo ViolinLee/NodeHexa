@@ -165,7 +165,7 @@
 
     <div class="card">
       <h2 id="singleActionTitle">单次动作</h2>
-      <div class="hint" id="singleActionHint">执行一段限定步数/角度/时间的动作</div>
+      <div class="hint" id="singleActionHint">执行一段限定周期/步数/距离的动作（姿态类仅支持周期）</div>
       <div class="form-row">
         <div class="form-control">
           <label id="labelMovement">动作类型</label>
@@ -234,6 +234,8 @@
     const MAX_SEQUENCE_ACTIONS = 5;
     let sequenceActions = [];
     let lowBatteryLatched = false;
+    let robotCaps = { type: 'hexa', legCount: 6 };
+    let effectiveMovementOptions = [];
 
     const lowBatteryMessages = {
       zh: '电量低，请关闭电源后进行充电！',
@@ -257,6 +259,10 @@
         const resp = await fetch('/api/caps', { cache: 'no-store' });
         const data = await resp.json();
         lowBatteryLatched = !!(data && data.power && data.power.lowBatteryLatched);
+        if (data && data.robot) {
+          robotCaps.type = data.robot.type || robotCaps.type;
+          robotCaps.legCount = data.robot.legCount || robotCaps.legCount;
+        }
       } catch (_) {
         // ignore
       }
@@ -282,14 +288,52 @@
       { key: 'cycles', zh: '周期', en: 'Cycles' },
       { key: 'steps', zh: '步数', en: 'Steps' },
       { key: 'distance', zh: '距离 (米)', en: 'Distance (m)' },
-      { key: 'angle', zh: '角度 (°)', en: 'Angle (°)' },
-      { key: 'durationMs', zh: '时长 (ms)', en: 'Duration (ms)' }
+      { key: 'angle', zh: '角度 (°)', en: 'Angle (°)' }
     ];
+
+    const WALKING_MOVES = new Set([
+      'forward', 'forwardfast', 'backward',
+      'turnleft', 'turnright',
+      'shiftleft', 'shiftright',
+      'climb'
+    ]);
+    const POSTURE_MOVES = new Set(['rotatex', 'rotatey', 'rotatez', 'twist', 'standby']);
+
+    function allowedUnitsForMovement(movementKey) {
+      // 约束规则：
+      // - 行走类：不支持角度，仅支持 cycles/steps/distance
+      // - 姿态类：仅支持 cycles
+      if (POSTURE_MOVES.has(movementKey)) {
+        return ['cycles'];
+      }
+      if (WALKING_MOVES.has(movementKey)) {
+        return ['cycles', 'steps', 'distance'];
+      }
+      return ['cycles'];
+    }
+
+    function filterMovementsByCaps(options) {
+      // 四足兼容：按机型过滤不支持的动作（避免误选导致退化/无效）。
+      if (robotCaps && robotCaps.type === 'quad') {
+        const blocked = new Set(['forwardfast', 'climb']);
+        return options.filter(o => !blocked.has(o.key));
+      }
+      return options;
+    }
+
+    function populateUnitSelect(allowedUnitKeys, preferredValue) {
+      const unitSelect = document.getElementById('unitSelect');
+      const allowedSet = new Set(allowedUnitKeys);
+      const opts = unitOptions.filter(opt => allowedSet.has(opt.key));
+      unitSelect.innerHTML = opts.map(opt => `<option value="${opt.key}">${opt[currentLang]}</option>`).join('');
+      const next = preferredValue && allowedSet.has(preferredValue) ? preferredValue : (opts[0] ? opts[0].key : 'cycles');
+      unitSelect.value = next;
+    }
 
     const langTexts = {
       pageTitle: { zh: '运动规划', en: 'Motion Planner' },
       singleActionTitle: { zh: '单次动作', en: 'Single Action' },
-      singleActionHint: { zh: '执行一段限定步数/角度/时间的动作', en: 'Run a single constrained action' },
+      singleActionHint: { zh: '执行一段限定周期/步数/距离的动作（姿态类仅支持周期）', en: 'Run a single constrained action' },
       sequenceTitle: { zh: '动作序列', en: 'Action Sequence' },
       sequenceHint: { zh: '最多 5 个动作，可一次性下发', en: 'Up to 5 actions per batch' },
       queueTitle: { zh: '队列控制', en: 'Queue Control' },
@@ -313,9 +357,17 @@
 
     function populateSelects() {
       const movementSelect = document.getElementById('movementSelect');
-      const unitSelect = document.getElementById('unitSelect');
-      movementSelect.innerHTML = movementOptions.map(opt => `<option value="${opt.key}">${opt[currentLang]}</option>`).join('');
-      unitSelect.innerHTML = unitOptions.map(opt => `<option value="${opt.key}">${opt[currentLang]}</option>`).join('');
+      effectiveMovementOptions = filterMovementsByCaps(movementOptions);
+      movementSelect.innerHTML = effectiveMovementOptions.map(opt => `<option value="${opt.key}">${opt[currentLang]}</option>`).join('');
+
+      const movement = movementSelect.value || (effectiveMovementOptions[0] ? effectiveMovementOptions[0].key : 'standby');
+      populateUnitSelect(allowedUnitsForMovement(movement), null);
+
+      movementSelect.onchange = () => {
+        const unitBefore = document.getElementById('unitSelect').value;
+        const mv = movementSelect.value;
+        populateUnitSelect(allowedUnitsForMovement(mv), unitBefore);
+      };
       updateLanguageTexts();
     }
 
@@ -370,6 +422,11 @@
       const speed = parseFloat(document.getElementById('speedInput').value);
       if (!movement || isNaN(value) || value <= 0) {
         showAlert(currentLang === 'zh' ? '请填写合法的动作与数值' : 'Please enter a valid action and value');
+        return null;
+      }
+      const allowed = new Set(allowedUnitsForMovement(movement));
+      if (!allowed.has(unit)) {
+        showAlert(currentLang === 'zh' ? '该动作不支持当前限定方式' : 'This movement does not support the selected constraint');
         return null;
       }
       const action = { movementMode: movement, unit, value };
@@ -512,9 +569,9 @@
       window.location.href = '/';
     }
 
-    window.onload = function() {
+    window.onload = async function() {
       initWebSocket();
-      loadCaps();
+      await loadCaps();
       populateSelects();
       renderSequence();
     };

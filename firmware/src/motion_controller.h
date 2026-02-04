@@ -17,7 +17,6 @@ enum class Unit : uint8_t {
     Steps,
     Distance,     // 米
     Angle,        // 度
-    DurationMs,
 };
 
 struct Action {
@@ -25,7 +24,6 @@ struct Action {
     Unit unit = Unit::Continuous;
     float value = 0.0f;
     float speed = 0.0f;         // 可选速度覆盖
-    uint32_t durationMs = 0;    // 仅在 Unit::DurationMs 有效
     uint32_t sequenceId = 0;    // 0 表示非序列动作
     bool sequenceTail = false;  // 是否为序列最后一段
 };
@@ -69,8 +67,6 @@ private:
         Action action;
         float targetCycles = 0.0f;
         float completedCycles = 0.0f;
-        uint32_t targetDurationMs = 0;
-        uint32_t elapsedDurationMs = 0;
         bool inUse = false;
         bool restoreSpeed = false;
         float previousSpeed = 0.0f;
