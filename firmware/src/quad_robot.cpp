@@ -87,6 +87,11 @@ namespace quadruped {
         return movement_.cycleDurationMsForMode(mode);
     }
 
+    MovementMode QuadRobot::executedMovementMode(MovementMode requestedMode) const {
+        (void)requestedMode;
+        return movement_.executedMode();
+    }
+
     void QuadRobot::calibrationSave() {
         // {"leg0": [0, 0, 0], ..., "leg3": [0, 0, 0]}
         StaticJsonDocument<512> doc;

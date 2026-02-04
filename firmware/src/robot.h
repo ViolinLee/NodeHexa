@@ -27,6 +27,13 @@ namespace hexapod {
         // 返回值单位：ms（可能为小数）
         virtual float getMovementCycleDurationMs(MovementMode mode) const = 0;
 
+        // 返回“当前实际执行的运动模式”（用于动作序列的精确计时）。
+        // 默认实现：认为实际执行 mode 与请求 mode 一致。
+        // 对存在切换过渡/对齐过程的机型（例如四足），应覆盖此函数返回真实执行的 mode。
+        virtual MovementMode executedMovementMode(MovementMode requestedMode) const {
+            return requestedMode;
+        }
+
         // 校准相关
         virtual void calibrationSave() = 0;
         virtual void calibrationGet(int legIndex, int partIndex, int& offset) = 0;

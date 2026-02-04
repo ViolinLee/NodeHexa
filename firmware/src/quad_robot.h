@@ -35,6 +35,7 @@ namespace quadruped {
 
         // 步态模式控制：0-trot,1-walk,2-gallop,3-creep
         void setGaitMode(int gaitMode) override;
+        hexapod::MovementMode executedMovementMode(hexapod::MovementMode requestedMode) const override;
 
     private:
         void calibrationLoad();

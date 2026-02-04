@@ -329,7 +329,10 @@ void normal_loop() {
   if (hexapod::Robot) {
     hexapod::Robot->processMovement(mode, REACT_DELAY);
   }
-  motion::controller().onLoopTick(mode, REACT_DELAY);
+  // 对四足：动作切换存在“等待 entry/对齐”的过渡期，此时实际执行 mode 可能不同。
+  // 为保证序列单位(cycles)的计时准确，应以“实际执行的 mode”来累计 completedCycles。
+  const auto executedMode = hexapod::Robot ? hexapod::Robot->executedMovementMode(mode) : mode;
+  motion::controller().onLoopTick(executedMode, REACT_DELAY);
 
   auto spent = millis() - t0;
 

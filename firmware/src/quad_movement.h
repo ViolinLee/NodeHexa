@@ -32,6 +32,9 @@ namespace quadruped {
 
         const QuadLocations& next(int elapsedMs);
 
+        // 当前实际执行的 mode（切换过程中可能与 requestedMode_ 不同）
+        hexapod::MovementMode executedMode() const { return mode_; }
+
         // 速度控制
         void setSpeed(float speed);
         float getSpeed() const;

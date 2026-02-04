@@ -736,6 +736,7 @@
     let robotType = 'hexa';
     let currentGait = 3; // 四足默认匍匐(Creep)
     let experimentalGaitsEnabled = false; // 默认不打开试验性
+    let hasSavedGaitMode = false; // 是否存在本地保存的 gait 偏好
     const gaitNames = {
       0: { zh: '小跑', en: 'Trot' },
       1: { zh: '慢走', en: 'Walk' },
@@ -757,6 +758,24 @@
       }
     }
 
+    function syncGaitModeToRobotIfReady() {
+      if (robotType !== 'quad') return;
+      normalizeCurrentGaitForQuad();
+
+      // 写回本地缓存，保证 UI/存储一致
+      try {
+        window.localStorage.setItem('gaitMode', String(currentGait));
+      } catch (_) {
+        // ignore
+      }
+
+      // 下发步态：固件约束仅允许在待机模式切换
+      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
+        sendCommand(0);
+        setTimeout(() => sendGaitMode(currentGait), 180);
+      }
+    }
+
     function renderGaitRadios() {
       const optionsEl = document.getElementById('gaitOptions');
       if (!optionsEl) return;
@@ -764,7 +783,12 @@
 
       if (robotType !== 'quad') return; // 六足不渲染
 
+      const before = currentGait;
       normalizeCurrentGaitForQuad();
+      // 若当前步态因“关闭试验性”等原因变为不支持，则回退后需要同步给机器人
+      if (before !== currentGait) {
+        syncGaitModeToRobotIfReady();
+      }
 
       const supported = getSupportedGaitsForQuad();
       supported.forEach((g) => {
@@ -862,7 +886,10 @@
         const saved = window.localStorage.getItem('gaitMode');
         if (saved !== null && saved !== undefined && saved !== '') {
           const v = parseInt(saved, 10);
-          if (!Number.isNaN(v) && v >= 0 && v <= 3) currentGait = v;
+          if (!Number.isNaN(v) && v >= 0 && v <= 3) {
+            currentGait = v;
+            hasSavedGaitMode = true;
+          }
         }
       } catch (_) {
         // ignore
@@ -1038,6 +1065,10 @@
         updateGaitControlVisibility();
         renderGaitExperimentalToggle();
         renderGaitRadios();
+        // 进入页面时：若本地保存过步态偏好，则同步一次，避免 UI/机器人状态不一致
+        if (type === 'quad' && hasSavedGaitMode) {
+          syncGaitModeToRobotIfReady();
+        }
         if (type === 'quad') {
           langTexts.footerTitle = { zh: '开源项目 · NodeQuadMini 四足机器人', en: 'Open Source · NodeQuadMini Quadruped Robot' };
         } else {
