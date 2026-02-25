@@ -10,7 +10,8 @@
 
 - **PiHexaSub** - 舵机拓展板PCB工程
 - **PiHexa-V4** - 六足机器人主板PCB工程  
-- **PiHexaHatXiaozhi** - 六足机器人小智拓展板工程
+- **PiHexaHatXiaozhi** - 六足机器人小智拓展板工程  
+- **Schematic_NodeQuadMini-V2.pdf** - 四足机器人电路原理图
 
 ### 🔧 设计工具
 
@@ -25,4 +26,4 @@
 
 ## 🌐 开源发布
 
-本项目硬件设计文件将在 **立创硬件开源平台 [OSHWHub](https://oshwhub.com)** 上发布，敬请期待！
+六足机器人硬件全面开源（原理图 + PCB），供爱好者学习；出于商业化考虑，四足机器人只开源原理图。
