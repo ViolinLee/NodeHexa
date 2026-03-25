@@ -490,6 +490,7 @@
       <button class="lang-switch" onclick="toggleLanguage()">English</button>
     </div>
   </h1>
+  <div id="powerBadgeMount"></div>
 
   <center><span align="center" style="text-align: center; display: inline-block;padding: 5px; font-size: 120%;font-weight: bold;"><a style="width:200px; height:50px;" href="/calibration">
     <button id="CALIBRATEPAGE" type="button" onclick="buttonclick(this);" style="width:200px; height: 30px; Text-align: center;" data-zh="校准：开始 | 保存" data-en="Calibration: Start | Save">校准：开始 | 保存</button></a></span></center><br>
@@ -636,35 +637,22 @@
     </div>
   </footer>
   
+  <script src="/power_ui.js"></script>
   <script>
     var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd"; 
     let websocketCarInput;
-
-    // 低电量锁存：一旦触发，直到重启才会恢复
-    let lowBatteryLatched = false;
-    // 低电量保护开关：默认开启；关闭后不再屏蔽操作
+    let powerUi;
     let lowBatteryProtectionEnabled = true;
-    const lowBatteryMessages = {
-      zh: '电量低，请关闭电源后进行充电！',
-      en: 'Low battery. Please power off and recharge.'
-    };
-
-    function getLowBatteryMessage() {
-      return (typeof currentLang !== 'undefined' && currentLang === 'en') ? lowBatteryMessages.en : lowBatteryMessages.zh;
-    }
 
     function guardLowBattery() {
-      if (lowBatteryProtectionEnabled && lowBatteryLatched) {
-        alert(getLowBatteryMessage());
-        return true;
-      }
-      return false;
+      return powerUi ? powerUi.guardLowBattery() : false;
     }
 
     function initRobotInputWebSocket() {
       websocketCarInput = new WebSocket(webSocketCarInputUrl);
       websocketCarInput.onopen = function(event) {
         console.log('WebSocket is open now.');
+        loadCapsAndUpdateFooter().catch(function() {});
       };
       websocketCarInput.onclose = function(event) {
         console.log('WebSocket is closed now. Reconnecting...');
@@ -673,26 +661,9 @@
       websocketCarInput.onmessage = function(event) {
         try {
           const msg = JSON.parse(event.data);
-
-          // 低电量事件：固件锁存后主动通知
-          if (msg && msg.event === 'lowBattery') {
-            if (lowBatteryProtectionEnabled) {
-              lowBatteryLatched = true;
-              alert(msg.message || getLowBatteryMessage());
-            }
+          if (powerUi && powerUi.handleWsMessage(msg)) {
+            lowBatteryProtectionEnabled = !!powerUi.getState().lowBatteryProtectionEnabled;
             return;
-          }
-
-          // 兼容：固件也可能返回 {status:"error", message:"..."}
-          if (msg && msg.status === 'error' && msg.message) {
-            // 跟随固件当前消息：精确匹配低电量提示
-            if (String(msg.message) === lowBatteryMessages.zh) {
-              if (lowBatteryProtectionEnabled) {
-                lowBatteryLatched = true;
-                alert(msg.message || getLowBatteryMessage());
-              }
-              return;
-            }
           }
         } catch (_) {
           // ignore non-JSON payload
@@ -1016,6 +987,7 @@
       
       // 更新模态框文本
       updateModalTexts();
+      if (powerUi) powerUi.render();
       
       console.log('Language switched to: ' + (currentLang === 'zh' ? '中文' : 'English'));
     }
@@ -1047,9 +1019,9 @@
         const data = await resp.json();
         const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
         robotType = type;
-        lowBatteryLatched = !!(data && data.power && data.power.lowBatteryLatched);
-        if (data && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
-          lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
+        if (powerUi) {
+          powerUi.applyCaps(data);
+          lowBatteryProtectionEnabled = !!powerUi.getState().lowBatteryProtectionEnabled;
         }
 
         if (type === 'quad') {
@@ -1065,8 +1037,9 @@
         updateGaitControlVisibility();
         renderGaitExperimentalToggle();
         renderGaitRadios();
-        // 进入页面时：若本地保存过步态偏好，则同步一次，避免 UI/机器人状态不一致
-        if (type === 'quad' && hasSavedGaitMode) {
+        // 进入页面时：若本地保存过步态偏好，则同步一次，避免 UI/机器人状态不一致。
+        // 低电量锁存时跳过自动同步，避免初始化阶段触发重复弹窗。
+        if (type === 'quad' && hasSavedGaitMode && !(powerUi && powerUi.getState().lowBatteryLatched)) {
           syncGaitModeToRobotIfReady();
         }
         if (type === 'quad') {
@@ -1119,6 +1092,7 @@
         const data = await resp.json();
         if (data && data.status === 'success' && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
           lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
+          if (powerUi) powerUi.setProtectionEnabled(lowBatteryProtectionEnabled);
         }
       } catch (_) {
         // ignore
@@ -1143,10 +1117,9 @@
         if (data && data.status === 'success' && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
           lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
           if (!lowBatteryProtectionEnabled) {
-            // 关闭保护后，立即解锁前端（不再阻止任何操作）
-            lowBatteryLatched = false;
+            if (powerUi) powerUi.setProtectionEnabled(false);
           } else {
-            // 重新开启时刷新一下 caps（若固件已锁存，会立即反映）
+            if (powerUi) powerUi.setProtectionEnabled(true);
             await loadCapsAndUpdateFooter();
           }
 
@@ -1317,6 +1290,15 @@
     }
 
     window.onload = async function() {
+      powerUi = createPowerUi({
+        mountId: 'powerBadgeMount',
+        getLang: () => currentLang,
+        alertFn: alert,
+        onStateChange: (powerState) => {
+          lowBatteryProtectionEnabled = !!powerState.lowBatteryProtectionEnabled;
+        }
+      });
+      powerUi.render();
       initRobotInputWebSocket();
       initSpeedControl();
       initGaitControl();
@@ -1329,6 +1311,7 @@
         plannerBtn.setAttribute('aria-label', '运动规划');
       }
       await loadCapsAndUpdateFooter();
+      powerUi.startPolling(10000);
 
       // 绑定“低电量保护”开关
       const lbToggle = document.getElementById('lowBatteryProtectToggle');

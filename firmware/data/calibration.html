@@ -213,13 +213,12 @@
     <span id="pageTitle">舵机校准</span>
     <button class="lang-switch" onclick="toggleLanguage()">English</button>
   </h1>
+  <div id="powerBadgeMount"></div>
 
   <div class="calibration-container">
     <div class="control-buttons">
       <button id="CALIBRATESTART" type="button" onclick="buttonclick(this);" data-zh="开始校准" data-en="Start Calibration">开始校准</button>
-      <a href="/">
-        <button id="CALIBRATESAVE" type="button" onclick="buttonclick(this);" data-zh="保存并返回" data-en="Save & Return">保存并返回</button>
-      </a>
+      <button id="CALIBRATESAVE" type="button" onclick="buttonclick(this);" data-zh="保存并返回" data-en="Save & Return">保存并返回</button>
     </div>
 
     <!-- 腿部校准区域：四足/六足共用一套 HTML，靠 /api/caps 探针动态渲染 -->
@@ -255,8 +254,38 @@
     </div>
   </footer>
 
+<script src="/power_ui.js"></script>
 <script>
 let robotCaps = { robot: { type: 'hexa', legCount: 6 } };
+var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd";
+let websocketCarInput;
+let powerUi;
+
+function guardLowBattery() {
+  return powerUi ? powerUi.guardLowBattery() : false;
+}
+
+function initRobotInputWebSocket() {
+  websocketCarInput = new WebSocket(webSocketCarInputUrl);
+  websocketCarInput.onopen = function() {
+    console.log('WebSocket is open now.');
+    loadCaps().catch(function() {});
+  };
+  websocketCarInput.onclose = function() {
+    console.log('WebSocket is closed now. Reconnecting...');
+    setTimeout(initRobotInputWebSocket, 2000);
+  };
+  websocketCarInput.onmessage = function(event) {
+    try {
+      const msg = JSON.parse(event.data);
+      if (powerUi && powerUi.handleWsMessage(msg)) {
+        return;
+      }
+    } catch (_) {
+      // ignore non-JSON payload
+    }
+  };
+}
 
 async function loadCaps() {
   try {
@@ -265,6 +294,7 @@ async function loadCaps() {
     if (data && data.robot && typeof data.robot.legCount === 'number') {
       robotCaps = data;
     }
+    if (powerUi) powerUi.applyCaps(data);
   } catch (_) {
     // 兜底：保持默认六足布局
   }
@@ -396,83 +426,105 @@ function renderLegControls() {
   });
 }
 
-function sendData(legIndex, partIndex, offset) {
-  var intOffset = parseInt(offset, 10);
+async function postCalibrationPayload(payload, onSuccess) {
+  if (guardLowBattery()) return false;
+  try {
+    const resp = await fetch('/calibration', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (data && data.status === 'error') {
+      if (powerUi && powerUi.handleHttpErrorMessage(data.message)) {
+        return 'handled-low-battery';
+      }
+      return false;
+    }
+    if (typeof onSuccess === 'function') {
+      onSuccess(data);
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
-  var xmlhttp = new XMLHttpRequest();
-  xmlhttp.open("POST", '/calibration', true);
-  xmlhttp.setRequestHeader("Content-Type", "application/json");
+async function sendData(legIndex, partIndex, offset) {
+  var intOffset = parseInt(offset, 10);
   var data = {
     legIndex: legIndex,
     partIndex: partIndex,
     offset: intOffset,
     modeChanged: false
   };
-  xmlhttp.send(JSON.stringify(data));
+  await postCalibrationPayload(data);
 }
 
-function buttonclick(e) {
+async function buttonclick(e) {
+  if (guardLowBattery()) return false;
   if (e.id === 'CALIBRATESTART') {
     // 开始校准：先检查是否存在已保存的校准配置
-    handleStartCalibration();
-    return;
+    await handleStartCalibration();
+    return false;
   }
 
-  var xmlhttp = new XMLHttpRequest();
-  xmlhttp.open("POST", '/calibration', true);
-  xmlhttp.setRequestHeader("Content-Type", "application/json");
+  if (e.id === 'CALIBRATESAVE') {
+    const ok = await postCalibrationPayload({
+      modeChanged: true,
+      operation: e.id
+    });
+    if (ok) {
+      window.location.href = '/';
+    } else if (ok !== 'handled-low-battery') {
+      alert(currentLang === 'zh' ? '保存失败，请重试' : 'Save failed, please try again');
+    }
+    return false;
+  }
 
   var data = {
     modeChanged: true,
     operation: e.id
   };
-  xmlhttp.send(JSON.stringify(data));
+  await postCalibrationPayload(data);
+  return false;
 }
 
 // 处理“开始校准”的选择逻辑
-function handleStartCalibration() {
-  fetch('/api/calibration')
-    .then(resp => resp.json())
-    .then(data => {
-      if (data && data.exists) {
-        // 弹框：确定=重新校准(清零)，取消=基于已有数据
-        const isReset = confirm('检测到已保存的校准数据。\n“确定”重新校准（清零），“取消”沿用已有数据。');
-        if (isReset) {
-          postCalibrationOperation('CALIBRATESTART', function() {
-            resetUIOffsetsToZero();
-          });
-        } else {
-          postCalibrationOperation('CALIBRATESTART_EXISTING', function() {
-            if (data.offsets) {
-              applyOffsetsToUI(data.offsets);
-            }
-          });
-        }
-      } else {
-        // 无已保存配置，直接按原逻辑开始校准
-        postCalibrationOperation('CALIBRATESTART', function() {
+async function handleStartCalibration() {
+  if (guardLowBattery()) return false;
+  try {
+    const resp = await fetch('/api/calibration');
+    const data = await resp.json();
+    if (data && data.exists) {
+      // 弹框：确定=重新校准(清零)，取消=基于已有数据
+      const isReset = confirm('检测到已保存的校准数据。\n“确定”重新校准（清零），“取消”沿用已有数据。');
+      if (isReset) {
+        return postCalibrationOperation('CALIBRATESTART', function() {
           resetUIOffsetsToZero();
         });
       }
-    })
-    .catch(() => {
-      // 兜底：请求失败时按原逻辑处理
-      postCalibrationOperation('CALIBRATESTART', function() {
-        resetUIOffsetsToZero();
+      return postCalibrationOperation('CALIBRATESTART_EXISTING', function() {
+        if (data.offsets) {
+          applyOffsetsToUI(data.offsets);
+        }
       });
+    }
+
+    // 无已保存配置，直接按原逻辑开始校准
+    return postCalibrationOperation('CALIBRATESTART', function() {
+      resetUIOffsetsToZero();
     });
+  } catch (_) {
+    // 兜底：请求失败时按原逻辑处理
+    return postCalibrationOperation('CALIBRATESTART', function() {
+      resetUIOffsetsToZero();
+    });
+  }
 }
 
 function postCalibrationOperation(operation, onload) {
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/calibration", true);
-  xhr.setRequestHeader("Content-Type", "application/json");
-  xhr.onreadystatechange = function() {
-    if (xhr.readyState === 4) {
-      if (typeof onload === 'function') onload();
-    }
-  };
-  xhr.send(JSON.stringify({ modeChanged: true, operation: operation }));
+  return postCalibrationPayload({ modeChanged: true, operation: operation }, onload);
 }
 
 function resetUIOffsetsToZero() {
@@ -532,14 +584,23 @@ function toggleLanguage() {
   document.getElementById('bilibiliText').textContent = langTexts.bilibiliText[currentLang];
   document.getElementById('githubText').textContent = langTexts.githubText[currentLang];
   document.getElementById('wechatText').textContent = langTexts.wechatText[currentLang];
+  if (powerUi) powerUi.render();
   
   console.log('Language switched to: ' + (currentLang === 'zh' ? '中文' : 'English'));
 }
 
 // 页面加载时默认显示中文
 window.onload = async function() {
+  powerUi = createPowerUi({
+    mountId: 'powerBadgeMount',
+    getLang: () => currentLang,
+    alertFn: alert
+  });
+  powerUi.render();
+  initRobotInputWebSocket();
   // 1) 拉取机型探针并渲染腿部 UI
   await loadCaps();
+  powerUi.startPolling(10000);
   const title = getRobotTitleByCaps();
   langTexts.footerTitle = title;
   document.getElementById('footerTitle').textContent = title[currentLang];

@@ -75,11 +75,15 @@ static unsigned long lastSerialDataTime = 0;  // 上次接收串口数据的时�
 static bool frameStarted = false;  // 帧接收状态：false-等待起始符$，true-正在接收数据
 
 // 电池监测相关变量
-static const float LOW_VOLTAGE_THRESHOLD = 6.4f; // 低电压阈值(V)
-static const uint16_t ADC_THRESHOLD = (uint16_t)(LOW_VOLTAGE_THRESHOLD * 47.0f / (100.0f + 47.0f) / 3.3f * 4095.0f); // ADC阈值
+static const float LOW_VOLTAGE_WARNING_THRESHOLD = 7.2f; // UI/警告阈值(V)
+static const float LOW_VOLTAGE_LATCH_THRESHOLD_STANDBY = 7.2f; // 待机/校准锁存阈值(V)
+static const float LOW_VOLTAGE_LATCH_THRESHOLD_MOVING = 7.0f; // 运动锁存阈值(V)
+static const float BATTERY_VOLTAGE_GAIN = 1.0122f; // 采样比例校准
+static const uint8_t LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES = 2; // 连续低压次数阈值
 // 低电量锁存：一旦置 true，只能通过重启恢复（避免 ADC 电压波动导致忽高忽低）
 static bool lowBatteryLatched = false;
 static bool lowBatteryHandled = false; // 是否已执行过“强制待机/清队列/通知”动作
+static uint16_t latestBatteryVoltageMv = 0;
 static constexpr const char* kLowBatteryUiMessage = "电量低，请关闭电源后进行充电！";
 SemaphoreHandle_t voltageMutex;
 
@@ -95,6 +99,7 @@ void handleCalibrationGet(AsyncWebServerRequest *request);
 void handleNotFound(AsyncWebServerRequest *request);
 void handleMotionPlanner(AsyncWebServerRequest *request);
 void sendHtmlFromSpiffs(AsyncWebServerRequest *request, const char *path);
+void sendFileFromSpiffs(AsyncWebServerRequest *request, const char *path, const char *contentType);
 void onRobotCmdWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 void normal_loop();
 void setting_loop();
@@ -130,6 +135,9 @@ static bool isLowBatteryLatched();
 static void handleLowBatteryLatchedOnce();
 static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client);
 static void sendLowBatteryErrorToSerial();
+static uint16_t getLatestBatteryVoltageMv();
+static uint8_t estimateBatteryPercent(uint16_t voltageMv);
+static bool shouldUseMovingLowBatteryThreshold();
 
 struct AdvancedCommandResult {
   bool handled = false;
@@ -181,6 +189,9 @@ void setup() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/planner", HTTP_GET, handleMotionPlanner);
   server.on("/planner.html", HTTP_GET, handleMotionPlanner);
+  server.on("/power_ui.js", HTTP_GET, [](AsyncWebServerRequest *request) {
+    sendFileFromSpiffs(request, "/power_ui.js", "application/javascript; charset=utf-8");
+  });
   server.on("/calibration", HTTP_GET, handleCalibrationPage);
   server.on("/calibration", HTTP_POST, 
     [](AsyncWebServerRequest *request)
@@ -353,15 +364,19 @@ void setting_loop() {
 
 /* HandleRoot
 */
-void sendHtmlFromSpiffs(AsyncWebServerRequest *request, const char *path) {
+void sendFileFromSpiffs(AsyncWebServerRequest *request, const char *path, const char *contentType) {
   if (SPIFFS.exists(path)) {
-    // 显式声明 UTF-8，避免不同浏览器对中文编码推断不一致导致乱码
-    request->send(SPIFFS, path, "text/html; charset=utf-8");
+    request->send(SPIFFS, path, contentType);
   } else {
     String message = "File not found: ";
     message += path;
     request->send(404, "text/plain", message);
   }
+}
+
+void sendHtmlFromSpiffs(AsyncWebServerRequest *request, const char *path) {
+  // 显式声明 UTF-8，避免不同浏览器对中文编码推断不一致导致乱码
+  sendFileFromSpiffs(request, path, "text/html; charset=utf-8");
 }
 
 void handleRoot(AsyncWebServerRequest *request) {
@@ -414,7 +429,7 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
       }
       _mode = 0;
       LOG_INFO("Leave Calibration Mode.");
-      handleRoot(request);
+      request->send(200, "application/json", "{\"status\":\"success\",\"redirect\":\"/\"}");
     }
   } else {
     if (_mode == 1) {
@@ -454,13 +469,17 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 
 /* UI 能力探测：仅返回 robot.type + legCount */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = kRobotType;
   robot["legCount"] = kRobotLegCount;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
   power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
+  const uint16_t voltageMv = getLatestBatteryVoltageMv();
+  power["voltageMv"] = voltageMv;
+  power["percentEstimate"] = estimateBatteryPercent(voltageMv);
+  power["lowBatteryThresholdMv"] = (uint16_t)(LOW_VOLTAGE_WARNING_THRESHOLD * 1000.0f + 0.5f);
 
   String responseStr;
   serializeJson(doc, responseStr);
@@ -814,6 +833,7 @@ void BatteryMonitorTask(void *pvParameters) {
   uint8_t readIndex = 0;
   uint32_t adcSum = 0;
   uint8_t actualSampleCount = 0;  // 实际采集的样本数量
+  uint8_t consecutiveLowCount = 0;
 
   while(1) {
     // 采集ADC值并做移动平均滤波
@@ -831,34 +851,58 @@ void BatteryMonitorTask(void *pvParameters) {
     }
 
     uint16_t adcAverage = adcSum / actualSampleCount;
+    const uint16_t rawAdc = adcReadings[actualSampleCount < SAMPLE_SIZE ? actualSampleCount - 1 : readIndex == 0 ? SAMPLE_SIZE - 1 : readIndex - 1];
 
-    // 打印ADC调试信息
-    #ifdef DEBUG_ADC_MONITOR
     // 计算实际电压值 (V)
     float voltage = (float)adcAverage * 3.3f / 4095.0f * (100.0f + 47.0f) / 47.0f;
-    Serial.printf("ADC Debug - Raw: %d, Average: %d, SampleCount: %d, Voltage: %.2fV, Threshold: %.2fV\n", 
-                  adcReadings[actualSampleCount < SAMPLE_SIZE ? actualSampleCount - 1 : readIndex == 0 ? SAMPLE_SIZE - 1 : readIndex - 1], 
-                  adcAverage, 
-                  actualSampleCount,
-                  voltage, 
-                  LOW_VOLTAGE_THRESHOLD);
-    #endif
+    voltage *= BATTERY_VOLTAGE_GAIN;
 
-    const bool isLow = (adcAverage < ADC_THRESHOLD);
+    const uint16_t voltageMv = (uint16_t)(voltage * 1000.0f + 0.5f);
+    const bool useMovingThreshold = shouldUseMovingLowBatteryThreshold();
+    const float latchThreshold = useMovingThreshold ? LOW_VOLTAGE_LATCH_THRESHOLD_MOVING : LOW_VOLTAGE_LATCH_THRESHOLD_STANDBY;
+    const uint16_t latchThresholdMv = (uint16_t)(latchThreshold * 1000.0f + 0.5f);
+    const bool isLow = (voltageMv <= latchThresholdMv);
 
-    // 低电量锁存：只要检测到一次低电压，就保持为 true，直到重启
+    xSemaphoreTake(voltageMutex, portMAX_DELAY);
+    latestBatteryVoltageMv = voltageMv;
+
     if (isLow) {
-      xSemaphoreTake(voltageMutex, portMAX_DELAY);
-      if (!lowBatteryLatched) {
-        lowBatteryLatched = true;
-        lowBatteryHandled = false; // 允许主循环执行一次强制待机/通知
-
-        #ifdef DEBUG_ADC_MONITOR
-        Serial.println("WARNING: Low voltage detected! (latched)");
-        #endif
+      if (consecutiveLowCount < LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES) {
+        consecutiveLowCount++;
       }
-      xSemaphoreGive(voltageMutex);
+    } else {
+      consecutiveLowCount = 0;
     }
+
+    // 低电量锁存：连续低压达到阈值后锁存，直到重启恢复
+    if (consecutiveLowCount >= LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES && !lowBatteryLatched) {
+      lowBatteryLatched = true;
+      lowBatteryHandled = false; // 允许主循环执行一次强制待机/通知
+
+      #ifdef DEBUG_ADC_MONITOR
+      Serial.println("WARNING: Low voltage detected! (latched)");
+      #endif
+    }
+    const bool latchedNow = lowBatteryLatched;
+    const bool handledNow = lowBatteryHandled;
+    xSemaphoreGive(voltageMutex);
+
+    #ifdef DEBUG_ADC_MONITOR
+    Serial.printf("ADC Debug - Raw: %u, Avg: %u, Samples: %u, Voltage: %.2fV (%umV), Warning: %.2fV, Latch: %.2fV [%s], LowNow: %s, LowCount: %u/%u, Latched: %s, Handled: %s\n",
+                  rawAdc,
+                  adcAverage,
+                  actualSampleCount,
+                  voltage,
+                  voltageMv,
+                  LOW_VOLTAGE_WARNING_THRESHOLD,
+                  latchThreshold,
+                  useMovingThreshold ? "moving" : "standby",
+                  isLow ? "yes" : "no",
+                  consecutiveLowCount,
+                  LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES,
+                  latchedNow ? "yes" : "no",
+                  handledNow ? "yes" : "no");
+    #endif
 
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
@@ -925,6 +969,52 @@ static bool isLowBatteryLatched() {
     xSemaphoreGive(voltageMutex);
   }
   return value;
+}
+
+static uint16_t getLatestBatteryVoltageMv() {
+  if (!voltageMutex) {
+    return latestBatteryVoltageMv;
+  }
+  uint16_t value = latestBatteryVoltageMv;
+  if (xSemaphoreTake(voltageMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    value = latestBatteryVoltageMv;
+    xSemaphoreGive(voltageMutex);
+  }
+  return value;
+}
+
+static bool shouldUseMovingLowBatteryThreshold() {
+  // 校准模式下机器人不应按“运动中压降”放宽阈值，仍按待机/静止逻辑处理。
+  if (_mode == 1) {
+    return false;
+  }
+
+  if (motion::controller().hasActiveAction()) {
+    return motion::controller().activeMode() != hexapod::MOVEMENT_STANDBY;
+  }
+
+  bool moving = false;
+  if (xSemaphoreTake(flagMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    for (auto m = hexapod::MOVEMENT_FORWARD; m < hexapod::MOVEMENT_TOTAL; m++) {
+      if (flag & (1 << m)) {
+        moving = true;
+        break;
+      }
+    }
+    xSemaphoreGive(flagMutex);
+  }
+  return moving;
+}
+
+static uint8_t estimateBatteryPercent(uint16_t voltageMv) {
+  if (voltageMv >= 8300) return 100;
+  if (voltageMv >= 8100) return 85;
+  if (voltageMv >= 7900) return 70;
+  if (voltageMv >= 7700) return 55;
+  if (voltageMv >= 7500) return 40;
+  if (voltageMv >= 7300) return 25;
+  if (voltageMv >= 7200) return 10;
+  return 0;
 }
 
 static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client) {

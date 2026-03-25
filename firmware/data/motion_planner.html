@@ -162,6 +162,7 @@
       <h1 id="pageTitle">运动规划</h1>
       <button class="ghost-btn lang-switch" onclick="toggleLanguage()">English</button>
     </header>
+    <div id="powerBadgeMount"></div>
 
     <div class="card">
       <h2 id="singleActionTitle">单次动作</h2>
@@ -227,42 +228,26 @@
     </div>
   </div>
 
+  <script src="/power_ui.js"></script>
   <script>
     var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd";
     let websocketCarInput;
+    let powerUi;
     let currentLang = 'zh';
     const MAX_SEQUENCE_ACTIONS = 5;
     let sequenceActions = [];
-    let lowBatteryLatched = false;
-    let lowBatteryProtectionEnabled = true;
     let robotCaps = { type: 'hexa', legCount: 6 };
     let effectiveMovementOptions = [];
 
-    const lowBatteryMessages = {
-      zh: '电量低，请关闭电源后进行充电！',
-      en: 'Low battery. Please power off and recharge.'
-    };
-
-    function getLowBatteryMessage() {
-      return currentLang === 'en' ? lowBatteryMessages.en : lowBatteryMessages.zh;
-    }
-
     function guardLowBattery() {
-      if (lowBatteryProtectionEnabled && lowBatteryLatched) {
-        showAlert(getLowBatteryMessage());
-        return true;
-      }
-      return false;
+      return powerUi ? powerUi.guardLowBattery() : false;
     }
 
     async function loadCaps() {
       try {
         const resp = await fetch('/api/caps', { cache: 'no-store' });
         const data = await resp.json();
-        lowBatteryLatched = !!(data && data.power && data.power.lowBatteryLatched);
-        if (data && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
-          lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
-        }
+        if (powerUi) powerUi.applyCaps(data);
         if (data && data.robot) {
           robotCaps.type = data.robot.type || robotCaps.type;
           robotCaps.legCount = data.robot.legCount || robotCaps.legCount;
@@ -377,7 +362,10 @@
 
     function initWebSocket() {
       websocketCarInput = new WebSocket(webSocketCarInputUrl);
-      websocketCarInput.onopen = () => appendLog('WS connected');
+      websocketCarInput.onopen = () => {
+        appendLog('WS connected');
+        loadCaps().catch(() => {});
+      };
       websocketCarInput.onclose = () => {
         appendLog('WS closed, retrying...');
         setTimeout(initWebSocket, 2000);
@@ -386,20 +374,8 @@
         appendLog('WS <= ' + event.data);
         try {
           const msg = JSON.parse(event.data);
-          if (msg && msg.event === 'lowBattery') {
-            if (lowBatteryProtectionEnabled) {
-              lowBatteryLatched = true;
-              showAlert(msg.message || getLowBatteryMessage());
-            }
+          if (powerUi && powerUi.handleWsMessage(msg)) {
             return;
-          }
-          if (msg && msg.status === 'error' && msg.message) {
-            if (String(msg.message).indexOf('电量低') !== -1) {
-              if (lowBatteryProtectionEnabled) {
-                lowBatteryLatched = true;
-                showAlert(msg.message);
-              }
-            }
           }
         } catch (_) {
           // ignore
@@ -543,6 +519,7 @@
       populateSelects();
       renderSequence();
       updateLanguageTexts();
+      if (powerUi) powerUi.render();
     }
 
     function updateLanguageTexts() {
@@ -578,8 +555,15 @@
     }
 
     window.onload = async function() {
+      powerUi = createPowerUi({
+        mountId: 'powerBadgeMount',
+        getLang: () => currentLang,
+        alertFn: showAlert
+      });
+      powerUi.render();
       initWebSocket();
       await loadCaps();
+      powerUi.startPolling(10000);
       populateSelects();
       renderSequence();
     };
