@@ -80,11 +80,14 @@ static const float LOW_VOLTAGE_LATCH_THRESHOLD_STANDBY = 7.2f; // 待机/校准�
 static const float LOW_VOLTAGE_LATCH_THRESHOLD_MOVING = 7.0f; // 运动锁存阈值(V)
 static const float BATTERY_VOLTAGE_GAIN = 1.0122f; // 采样比例校准
 static const uint8_t LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES = 2; // 连续低压次数阈值
+static const unsigned long LOW_BATTERY_SERIAL_REMINDER_INTERVAL_MS = 10000; // 串口提醒重发间隔
 // 低电量锁存：一旦置 true，只能通过重启恢复（避免 ADC 电压波动导致忽高忽低）
 static bool lowBatteryLatched = false;
 static bool lowBatteryHandled = false; // 是否已执行过“强制待机/清队列/通知”动作
 static uint16_t latestBatteryVoltageMv = 0;
 static constexpr const char* kLowBatteryUiMessage = "电量低，请关闭电源后进行充电！";
+static constexpr const char* kLowBatteryProtectCode = "LOW_BATTERY_PROTECT";
+static unsigned long lastLowBatterySerialNotifyMs = 0;
 SemaphoreHandle_t voltageMutex;
 
 // 实例
@@ -135,6 +138,8 @@ static bool isLowBatteryLatched();
 static void handleLowBatteryLatchedOnce();
 static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client);
 static void sendLowBatteryErrorToSerial();
+static void sendLowBatteryEventToSerial();
+static void maybeRepeatLowBatteryEventToSerial();
 static uint16_t getLatestBatteryVoltageMv();
 static uint8_t estimateBatteryPercent(uint16_t voltageMv);
 static bool shouldUseMovingLowBatteryThreshold();
@@ -313,6 +318,7 @@ void normal_loop() {
   const bool lowBattery = isLowBatteryLatched();
   if (lowBattery) {
     handleLowBatteryLatchedOnce();
+    maybeRepeatLowBatteryEventToSerial();
   }
 
   auto t0 = millis();
@@ -669,6 +675,7 @@ void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   // 若重新开启保护且此前已锁存，则允许再次执行一次“强制待机/通知”
   if (devsettings::isLowBatteryProtectionEnabled()) {
     lowBatteryHandled = false;
+    lastLowBatterySerialNotifyMs = 0;
   }
 
   StaticJsonDocument<192> resp;
@@ -1020,6 +1027,7 @@ static uint8_t estimateBatteryPercent(uint16_t voltageMv) {
 static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client) {
   StaticJsonDocument<160> ack;
   ack["status"] = "error";
+  ack["code"] = kLowBatteryProtectCode;
   ack["message"] = kLowBatteryUiMessage;
   String payload;
   serializeJson(ack, payload);
@@ -1031,10 +1039,34 @@ static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client) {
 static void sendLowBatteryErrorToSerial() {
   StaticJsonDocument<160> ack;
   ack["status"] = "error";
+  ack["code"] = kLowBatteryProtectCode;
   ack["message"] = kLowBatteryUiMessage;
   String payload;
   serializeJson(ack, payload);
   sendSerialResponse(payload);
+}
+
+static void sendLowBatteryEventToSerial() {
+  StaticJsonDocument<192> doc;
+  doc["event"] = "lowBattery";
+  doc["code"] = kLowBatteryProtectCode;
+  doc["message"] = kLowBatteryUiMessage;
+
+  String payload;
+  serializeJson(doc, payload);
+  sendSerialResponse(payload);
+  lastLowBatterySerialNotifyMs = millis();
+}
+
+static void maybeRepeatLowBatteryEventToSerial() {
+  const unsigned long now = millis();
+  if (lastLowBatterySerialNotifyMs != 0 &&
+      now - lastLowBatterySerialNotifyMs < LOW_BATTERY_SERIAL_REMINDER_INTERVAL_MS) {
+    return;
+  }
+
+  sendLowBatteryEventToSerial();
+  Serial.println("[Power] Low battery serial reminder sent.");
 }
 
 static void handleLowBatteryLatchedOnce() {
@@ -1061,14 +1093,15 @@ static void handleLowBatteryLatchedOnce() {
 
   StaticJsonDocument<192> doc;
   doc["event"] = "lowBattery";
+  doc["code"] = kLowBatteryProtectCode;
   doc["message"] = kLowBatteryUiMessage;
 
   String payload;
   serializeJson(doc, payload);
 
-  // 主动广播给所有 WebSocket 客户端 + 串口，方便 UI 弹窗提示
+  // 主动广播给所有 WebSocket 客户端，串口单独走可重发提醒逻辑
   wsRoverCmd.textAll(payload);
-  sendSerialResponse(payload);
+  sendLowBatteryEventToSerial();
 
   Serial.println("[Power] Low battery latched: force standby and block commands.");
 }
