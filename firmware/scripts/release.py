@@ -318,8 +318,8 @@ class ReleaseManager:
         
         # 默认更新内容（可以在这里修改）
         default_changelog = """- 固件版本更新
-- 新增四足机器人固件
-- 新增运动规划功能"""
+- 新增电量显示功能
+- 新增对小智拓展板的低电量警告通知"""
         
         return default_changelog
     

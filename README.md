@@ -1,5 +1,7 @@
 # 🤖 NodeHexa - 六足机器人（支持四足构型）
 
+[English README](README_EN.md)
+
 <div align="center">
 
 ![NodeHexa Logo](resource/frontal.jpg)
