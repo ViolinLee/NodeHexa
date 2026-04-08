@@ -132,6 +132,8 @@ void SerialCommandTask(void *pvParameters);
 void sendSerialResponse(const String& message);
 void testUART2Connection();
 void clearMovementFlag();
+static const char* motionButtonModeToString(devsettings::MotionButtonMode mode);
+static bool parseMotionButtonModeField(JsonVariantConst value, devsettings::MotionButtonMode& mode);
 
 // 低电量锁存辅助
 static bool isLowBatteryLatched();
@@ -630,13 +632,15 @@ void handleApConfigReset(AsyncWebServerRequest *request) {
 
 /* 通用设置接口：GET/POST /api/settings
  * - GET: 返回当前设置
- * - POST: 仅允许更新已支持的字段（当前：lowBatteryProtectionEnabled）
+ * - POST: 允许更新已支持的 power/motion 设置
  */
 void handleSettingsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<192> json;
+  StaticJsonDocument<256> json;
   json["status"] = "success";
   JsonObject power = json.createNestedObject("power");
   power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
+  JsonObject motion = json.createNestedObject("motion");
+  motion["buttonMode"] = motionButtonModeToString(devsettings::getMotionButtonMode());
   String response;
   serializeJson(json, response);
   request->send(200, "application/json", response);
@@ -647,41 +651,77 @@ void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   (void)total;
   String body = String((char*)data).substring(0, len);
 
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   DeserializationError error = deserializeJson(doc, body);
   if (error) {
     request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
     return;
   }
 
-  // 仅接受唯一格式：{ "power": { "lowBatteryProtectionEnabled": true } }
-  if (!doc.containsKey("power") || !doc["power"].is<JsonObjectConst>()) {
-    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: missing power object\"}");
+  const bool hasPowerObject = doc.containsKey("power");
+  const bool hasMotionObject = doc.containsKey("motion");
+  if (!hasPowerObject && !hasMotionObject) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: missing power/motion object\"}");
     return;
   }
 
-  JsonObjectConst p = doc["power"].as<JsonObjectConst>();
-  if (!p.containsKey("lowBatteryProtectionEnabled")) {
-    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: missing power.lowBatteryProtectionEnabled\"}");
-    return;
+  bool hasPowerUpdate = false;
+  bool powerEnabled = devsettings::isLowBatteryProtectionEnabled();
+  if (hasPowerObject) {
+    if (!doc["power"].is<JsonObjectConst>()) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: power must be an object\"}");
+      return;
+    }
+    JsonObjectConst p = doc["power"].as<JsonObjectConst>();
+    if (!p.containsKey("lowBatteryProtectionEnabled")) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: missing power.lowBatteryProtectionEnabled\"}");
+      return;
+    }
+    powerEnabled = p["lowBatteryProtectionEnabled"].as<bool>();
+    hasPowerUpdate = true;
   }
 
-  const bool enabled = p["lowBatteryProtectionEnabled"].as<bool>();
-  if (!devsettings::setLowBatteryProtectionEnabled(enabled)) {
-    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to persist settings\"}");
-    return;
+  bool hasMotionUpdate = false;
+  devsettings::MotionButtonMode buttonMode = devsettings::getMotionButtonMode();
+  if (hasMotionObject) {
+    if (!doc["motion"].is<JsonObjectConst>()) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: motion must be an object\"}");
+      return;
+    }
+    JsonObjectConst m = doc["motion"].as<JsonObjectConst>();
+    if (!m.containsKey("buttonMode") || !parseMotionButtonModeField(m["buttonMode"], buttonMode)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: motion.buttonMode must be continuous or single_cycle\"}");
+      return;
+    }
+    hasMotionUpdate = true;
   }
 
-  // 若重新开启保护且此前已锁存，则允许再次执行一次“强制待机/通知”
-  if (devsettings::isLowBatteryProtectionEnabled()) {
-    lowBatteryHandled = false;
-    lastLowBatterySerialNotifyMs = 0;
+  if (hasPowerUpdate) {
+    if (!devsettings::setLowBatteryProtectionEnabled(powerEnabled)) {
+      request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to persist power settings\"}");
+      return;
+    }
+
+    // 若重新开启保护且此前已锁存，则允许再次执行一次“强制待机/通知”
+    if (devsettings::isLowBatteryProtectionEnabled()) {
+      lowBatteryHandled = false;
+      lastLowBatterySerialNotifyMs = 0;
+    }
   }
 
-  StaticJsonDocument<192> resp;
+  if (hasMotionUpdate) {
+    if (!devsettings::setMotionButtonMode(buttonMode)) {
+      request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to persist motion settings\"}");
+      return;
+    }
+  }
+
+  StaticJsonDocument<256> resp;
   resp["status"] = "success";
   JsonObject power = resp.createNestedObject("power");
   power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
+  JsonObject motion = resp.createNestedObject("motion");
+  motion["buttonMode"] = motionButtonModeToString(devsettings::getMotionButtonMode());
   String response;
   serializeJson(resp, response);
   request->send(200, "application/json", response);
@@ -1104,6 +1144,40 @@ static void handleLowBatteryLatchedOnce() {
   sendLowBatteryEventToSerial();
 
   Serial.println("[Power] Low battery latched: force standby and block commands.");
+}
+
+static const char* motionButtonModeToString(devsettings::MotionButtonMode mode) {
+  return mode == devsettings::MotionButtonMode::SingleCycle ? "single_cycle" : "continuous";
+}
+
+static bool parseMotionButtonModeField(JsonVariantConst value, devsettings::MotionButtonMode& mode) {
+  if (value.is<const char*>()) {
+    String lower = value.as<const char*>();
+    lower.toLowerCase();
+    if (lower == "continuous") {
+      mode = devsettings::MotionButtonMode::Continuous;
+      return true;
+    }
+    if (lower == "single_cycle" || lower == "singlecycle") {
+      mode = devsettings::MotionButtonMode::SingleCycle;
+      return true;
+    }
+    return false;
+  }
+
+  if (value.is<int>()) {
+    int raw = value.as<int>();
+    if (raw == static_cast<int>(devsettings::MotionButtonMode::Continuous)) {
+      mode = devsettings::MotionButtonMode::Continuous;
+      return true;
+    }
+    if (raw == static_cast<int>(devsettings::MotionButtonMode::SingleCycle)) {
+      mode = devsettings::MotionButtonMode::SingleCycle;
+      return true;
+    }
+  }
+
+  return false;
 }
 
 static void handleSequenceComplete(uint32_t sequenceId) {

@@ -598,9 +598,22 @@
         <div class="form-group">
           <label class="form-label" id="labelLowBatteryProtect">低电量保护</label>
           <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-            <div style="font-size:12px; color:#666;" id="hintLowBatteryProtect">默认开启；关闭后低电量状态也允许运行</div>
+            <div style="font-size:13px; color:#666;" id="hintLowBatteryProtect">默认开启；关闭后低电量状态也允许运行（有风险、不建议！）</div>
             <label class="switch" title="Low battery protection">
               <input type="checkbox" id="lowBatteryProtectToggle">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" id="labelMotionButtonMode">动作按钮模式</label>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+            <div style="font-size:13px; color:#666;">
+              <div id="hintMotionButtonMode">持续：持续生效；单次：只执行 1 个动作周期。</div>
+              <div id="motionButtonModeState" style="margin-top:4px; font-weight:600; color:#333;">当前：持续</div>
+            </div>
+            <label class="switch" title="Motion button mode">
+              <input type="checkbox" id="motionButtonModeToggle">
               <span class="slider"></span>
             </label>
           </div>
@@ -643,6 +656,22 @@
     let websocketCarInput;
     let powerUi;
     let lowBatteryProtectionEnabled = true;
+    let motionButtonMode = 'continuous';
+    const commandModeToName = {
+      0: 'standby',
+      1: 'forward',
+      2: 'forwardfast',
+      3: 'backward',
+      4: 'turnleft',
+      5: 'turnright',
+      6: 'shiftleft',
+      7: 'shiftright',
+      8: 'climb',
+      9: 'rotatex',
+      10: 'rotatey',
+      11: 'rotatez',
+      12: 'twist'
+    };
 
     function guardLowBattery() {
       return powerUi ? powerUi.guardLowBattery() : false;
@@ -671,15 +700,44 @@
       };
     }
 
-    function sendCommand(commandMode) {
-      if (guardLowBattery()) return;
+    function sendWsPayload(payload) {
+      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
+        websocketCarInput.send(JSON.stringify(payload));
+        console.log('Sent payload:', payload);
+      } else {
+        console.log('WebSocket is not open. Cannot send payload.');
+      }
+    }
+
+    function sendLegacyMovementCommand(commandMode) {
       let command = 0;
       command |= (1<<commandMode);
-      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
-        websocketCarInput.send(JSON.stringify({movementMode: command}));
-        console.log('Sent command: ' + command);
+      sendWsPayload({movementMode: command});
+    }
+
+    function sendStopCommand() {
+      sendWsPayload({stop: true});
+    }
+
+    function sendSingleCycleCommand(commandMode) {
+      const movementName = commandModeToName[commandMode];
+      if (!movementName || movementName === 'standby') {
+        sendStopCommand();
+        return;
+      }
+      sendWsPayload({mode: movementName, cycles: 1});
+    }
+
+    function sendCommand(commandMode) {
+      if (guardLowBattery()) return;
+      if (commandMode === 0) {
+        sendStopCommand();
+        return;
+      }
+      if (motionButtonMode === 'single_cycle') {
+        sendSingleCycleCommand(commandMode);
       } else {
-        console.log('WebSocket is not open. Cannot send command.');
+        sendLegacyMovementCommand(commandMode);
       }
     }
 
@@ -919,7 +977,11 @@
       pendingHint: { zh: '连接后访问 http://192.168.4.1 完成确认', en: 'Visit http://192.168.4.1 after connecting to confirm' },
       otherModalTitle: { zh: '设置', en: 'Settings' },
       labelLowBatteryProtect: { zh: '低电量保护', en: 'Low battery protection' },
-      hintLowBatteryProtect: { zh: '默认开启；关闭后低电量状态也允许运行', en: 'Enabled by default. Turn off to allow running under low battery.' }
+      hintLowBatteryProtect: { zh: '默认开启；关闭后低电量状态也允许运行', en: 'Enabled by default. Turn off to allow running under low battery.' },
+      labelMotionButtonMode: { zh: '动作按钮模式', en: 'Motion button mode' },
+      hintMotionButtonMode: { zh: '持续：按钮持续生效；单次：每次点击完整执行 1 个动作周期，不排队。', en: 'Continuous: button keeps the movement active. Single: each tap runs exactly 1 full motion cycle with no queuing.' },
+      motionButtonModeContinuous: { zh: '当前：持续', en: 'Current: Continuous' },
+      motionButtonModeSingle: { zh: '当前：单次', en: 'Current: Single' }
     };
 
     function toggleLanguage() {
@@ -1011,6 +1073,46 @@
       if (lbLabel) lbLabel.textContent = langTexts.labelLowBatteryProtect[currentLang];
       const lbHint = document.getElementById('hintLowBatteryProtect');
       if (lbHint) lbHint.textContent = langTexts.hintLowBatteryProtect[currentLang];
+      const motionLabel = document.getElementById('labelMotionButtonMode');
+      if (motionLabel) motionLabel.textContent = langTexts.labelMotionButtonMode[currentLang];
+      const motionHint = document.getElementById('hintMotionButtonMode');
+      if (motionHint) motionHint.textContent = langTexts.hintMotionButtonMode[currentLang];
+      updateMotionButtonModeStateText();
+    }
+
+    function updateMotionButtonModeStateText() {
+      const stateEl = document.getElementById('motionButtonModeState');
+      if (!stateEl) return;
+      stateEl.textContent = motionButtonMode === 'single_cycle'
+        ? langTexts.motionButtonModeSingle[currentLang]
+        : langTexts.motionButtonModeContinuous[currentLang];
+    }
+
+    function applySettingsResponse(data) {
+      if (data && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
+        lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
+        if (powerUi) powerUi.setProtectionEnabled(lowBatteryProtectionEnabled);
+      }
+      if (data && data.motion && typeof data.motion.buttonMode === 'string') {
+        motionButtonMode = data.motion.buttonMode === 'single_cycle' ? 'single_cycle' : 'continuous';
+      }
+
+      const lbToggle = document.getElementById('lowBatteryProtectToggle');
+      if (lbToggle) lbToggle.checked = !!lowBatteryProtectionEnabled;
+      const motionToggle = document.getElementById('motionButtonModeToggle');
+      if (motionToggle) motionToggle.checked = motionButtonMode === 'single_cycle';
+      updateMotionButtonModeStateText();
+    }
+
+    function showOtherSettingsStatus(message, type) {
+      const statusEl = document.getElementById('otherStatusMessage');
+      if (!statusEl) return;
+      statusEl.textContent = message;
+      statusEl.className = 'status-message status-' + type;
+      statusEl.style.display = 'block';
+      if (type === 'success') {
+        setTimeout(() => { statusEl.style.display = 'none'; }, 2500);
+      }
     }
 
     async function loadCapsAndUpdateFooter() {
@@ -1083,21 +1185,20 @@
     }
 
     async function loadOtherSettings() {
-      const toggle = document.getElementById('lowBatteryProtectToggle');
-      if (!toggle) return;
-
       // 优先读取后端设置接口，失败则回退到 caps
       try {
         const resp = await fetch('/api/settings', { cache: 'no-store' });
         const data = await resp.json();
-        if (data && data.status === 'success' && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
-          lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
-          if (powerUi) powerUi.setProtectionEnabled(lowBatteryProtectionEnabled);
+        if (data && data.status === 'success') {
+          applySettingsResponse(data);
         }
       } catch (_) {
         // ignore
       }
-      toggle.checked = !!lowBatteryProtectionEnabled;
+      applySettingsResponse({
+        power: { lowBatteryProtectionEnabled: lowBatteryProtectionEnabled },
+        motion: { buttonMode: motionButtonMode }
+      });
     }
 
     async function setLowBatteryProtectionEnabled(enabled) {
@@ -1114,32 +1215,46 @@
           body: JSON.stringify({ power: { lowBatteryProtectionEnabled: !!enabled } })
         });
         const data = await resp.json();
-        if (data && data.status === 'success' && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
-          lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
-          if (!lowBatteryProtectionEnabled) {
-            if (powerUi) powerUi.setProtectionEnabled(false);
-          } else {
-            if (powerUi) powerUi.setProtectionEnabled(true);
+        if (data && data.status === 'success') {
+          applySettingsResponse(data);
+          if (lowBatteryProtectionEnabled) {
             await loadCapsAndUpdateFooter();
           }
-
-          if (statusEl) {
-            statusEl.textContent = (currentLang === 'zh') ? '已保存' : 'Saved';
-            statusEl.className = 'status-message status-success';
-            statusEl.style.display = 'block';
-            setTimeout(() => { statusEl.style.display = 'none'; }, 2500);
-          }
+          showOtherSettingsStatus((currentLang === 'zh') ? '已保存' : 'Saved', 'success');
         } else {
           throw new Error((data && data.message) ? data.message : 'Unknown error');
         }
       } catch (e) {
-        if (statusEl) {
-          statusEl.textContent = (currentLang === 'zh')
-            ? ('保存失败: ' + (e && e.message ? e.message : '网络错误'))
-            : ('Save failed: ' + (e && e.message ? e.message : 'Network error'));
-          statusEl.className = 'status-message status-error';
-          statusEl.style.display = 'block';
+        showOtherSettingsStatus((currentLang === 'zh')
+          ? ('保存失败: ' + (e && e.message ? e.message : '网络错误'))
+          : ('Save failed: ' + (e && e.message ? e.message : 'Network error')), 'error');
+      }
+    }
+
+    async function setMotionButtonMode(mode) {
+      const statusEl = document.getElementById('otherStatusMessage');
+      if (statusEl) {
+        statusEl.className = 'status-message';
+        statusEl.style.display = 'none';
+      }
+
+      try {
+        const resp = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ motion: { buttonMode: mode } })
+        });
+        const data = await resp.json();
+        if (data && data.status === 'success') {
+          applySettingsResponse(data);
+          showOtherSettingsStatus((currentLang === 'zh') ? '已保存' : 'Saved', 'success');
+        } else {
+          throw new Error((data && data.message) ? data.message : 'Unknown error');
         }
+      } catch (e) {
+        showOtherSettingsStatus((currentLang === 'zh')
+          ? ('保存失败: ' + (e && e.message ? e.message : '网络错误'))
+          : ('Save failed: ' + (e && e.message ? e.message : 'Network error')), 'error');
       }
     }
 
@@ -1311,6 +1426,7 @@
         plannerBtn.setAttribute('aria-label', '运动规划');
       }
       await loadCapsAndUpdateFooter();
+      await loadOtherSettings();
       powerUi.startPolling(10000);
 
       // 绑定“低电量保护”开关
@@ -1319,6 +1435,13 @@
         lbToggle.checked = !!lowBatteryProtectionEnabled;
         lbToggle.addEventListener('change', () => {
           setLowBatteryProtectionEnabled(!!lbToggle.checked);
+        });
+      }
+      const motionToggle = document.getElementById('motionButtonModeToggle');
+      if (motionToggle) {
+        motionToggle.checked = motionButtonMode === 'single_cycle';
+        motionToggle.addEventListener('change', () => {
+          setMotionButtonMode(motionToggle.checked ? 'single_cycle' : 'continuous');
         });
       }
       
