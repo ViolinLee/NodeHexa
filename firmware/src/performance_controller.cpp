@@ -79,6 +79,15 @@ void attachSequenceMetadata(Action* actions, size_t count, uint32_t sequenceId) 
     }
 }
 
+bool enqueueActionSequence(Action* actions, size_t count, uint32_t sequenceId, String& error) {
+    attachSequenceMetadata(actions, count, sequenceId);
+    if (!motion::controller().enqueueSequence(actions, count)) {
+        error = "queue full";
+        return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 Controller& Controller::instance() {
@@ -105,14 +114,9 @@ const char* kindToKey(Kind kind) {
 }
 
 bool isSupported(Kind kind) {
-#ifdef ROBOT_MODEL_NODEQUADMINI
-    (void)kind;
-    return false;
-#else
     return kind == Kind::Freestyle
         || kind == Kind::BeatSway
         || kind == Kind::Showtime;
-#endif
 }
 
 void Controller::begin() {
@@ -228,6 +232,20 @@ bool Controller::enqueueFreestyle(uint32_t sequenceId, String& error) {
         actions[2] = makeFreestylePostureAction(nextIndex(4));
     } while (actions[2].mode == actions[0].mode);
 
+#ifdef ROBOT_MODEL_NODEQUADMINI
+    const MovementMode paired = counterpartOf(actions[1].mode);
+    if (paired != MOVEMENT_STANDBY) {
+        actions[3] = makeCyclesAction(paired, 1.0f);
+    } else {
+        do {
+            actions[3] = makeFreestyleAccentAction(nextIndex(4));
+        } while (actions[3].mode == actions[1].mode);
+    }
+
+    do {
+        actions[4] = makeFreestylePostureAction(nextIndex(4));
+    } while (actions[4].mode == actions[2].mode);
+#else
     const bool useTravel = (nextRandom() & 0x3u) == 0u;
     if (useTravel) {
         actions[3] = makeFreestyleTravelAction(nextIndex(2));
@@ -246,17 +264,21 @@ bool Controller::enqueueFreestyle(uint32_t sequenceId, String& error) {
             actions[4] = makeFreestylePostureAction(nextIndex(4));
         }
     }
+#endif
 
-    attachSequenceMetadata(actions, kPerformanceSequenceLength, sequenceId);
-
-    if (!motion::controller().enqueueSequence(actions, kPerformanceSequenceLength)) {
-        error = "queue full";
-        return false;
-    }
-    return true;
+    return enqueueActionSequence(actions, kPerformanceSequenceLength, sequenceId, error);
 }
 
 bool Controller::enqueueShowtime(uint32_t sequenceId, String& error) {
+#ifdef ROBOT_MODEL_NODEQUADMINI
+    Action actions[kPerformanceSequenceLength] = {
+        makeCyclesAction(MOVEMENT_ROTATEZ, 1.0f),
+        makeCyclesAction(MOVEMENT_TWIST, 1.0f),
+        makeCyclesAction(MOVEMENT_TURNLEFT, 1.0f),
+        makeCyclesAction(MOVEMENT_TURNRIGHT, 1.0f),
+        makeCyclesAction(MOVEMENT_ROTATEY, 1.0f),
+    };
+#else
     Action actions[kPerformanceSequenceLength] = {
         makeCyclesAction(MOVEMENT_ROTATEZ, 1.0f),
         makeCyclesAction(MOVEMENT_TWIST, 1.0f),
@@ -264,17 +286,22 @@ bool Controller::enqueueShowtime(uint32_t sequenceId, String& error) {
         makeCyclesAction(MOVEMENT_SHIFTRIGHT, 1.0f),
         makeCyclesAction(MOVEMENT_ROTATEY, 1.0f),
     };
+#endif
 
-    attachSequenceMetadata(actions, kPerformanceSequenceLength, sequenceId);
-
-    if (!motion::controller().enqueueSequence(actions, kPerformanceSequenceLength)) {
-        error = "queue full";
-        return false;
-    }
-    return true;
+    return enqueueActionSequence(actions, kPerformanceSequenceLength, sequenceId, error);
 }
 
 bool Controller::enqueueBeatSway(uint32_t sequenceId, String& error) {
+#ifdef ROBOT_MODEL_NODEQUADMINI
+    Action actions[kPerformanceSequenceLength] = {
+        makeCyclesAction(MOVEMENT_ROTATEX, 1.0f),
+        makeCyclesAction(MOVEMENT_ROTATEZ, 1.0f),
+        makeCyclesAction(MOVEMENT_TWIST, 1.0f),
+        makeCyclesAction(MOVEMENT_ROTATEZ, 1.0f),
+        makeCyclesAction(MOVEMENT_ROTATEY, 1.0f),
+    };
+    return enqueueActionSequence(actions, kPerformanceSequenceLength, sequenceId, error);
+#else
     Action action = makeCyclesAction(MOVEMENT_BEATSWAY, kBeatSwayCyclesPerRound);
     action.sequenceId = sequenceId;
     action.sequenceTail = true;
@@ -284,6 +311,7 @@ bool Controller::enqueueBeatSway(uint32_t sequenceId, String& error) {
         return false;
     }
     return true;
+#endif
 }
 
 uint32_t Controller::nextSequenceId() {
