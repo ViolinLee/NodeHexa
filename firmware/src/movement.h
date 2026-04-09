@@ -19,6 +19,7 @@ namespace hexapod {
         MOVEMENT_ROTATEY,
         MOVEMENT_ROTATEZ,
         MOVEMENT_TWIST,
+        MOVEMENT_BEATSWAY,
 
         MOVEMENT_TOTAL,
     };

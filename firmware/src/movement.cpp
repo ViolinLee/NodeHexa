@@ -19,6 +19,7 @@ namespace hexapod {
     extern const MovementTable& rotateyTable();
     extern const MovementTable& rotatezTable();
     extern const MovementTable& twistTable();
+    extern const MovementTable& beatswayTable();
 
     const MovementTable kTable[MOVEMENT_TOTAL] {
         standbyTable(),
@@ -34,6 +35,7 @@ namespace hexapod {
         rotateyTable(),
         rotatezTable(),
         twistTable(),
+        beatswayTable(),
     };
 
     const MovementTable& getMovementTable(MovementMode mode) {

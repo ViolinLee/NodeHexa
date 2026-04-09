@@ -33,6 +33,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "device_settings.h"
 #include "robot.h"
 #include "motion_controller.h"
+#include "performance_controller.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -156,6 +157,7 @@ struct AdvancedCommandResult {
 static void handleSequenceComplete(uint32_t sequenceId);
 static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json);
 static bool parseMovementModeField(JsonVariantConst value, hexapod::MovementMode& mode);
+static bool parsePerformanceKindField(JsonVariantConst value, performance::Kind& kind);
 static bool buildActionFromJson(JsonVariantConst obj, motion::Action& action, String& error);
 
 void setup() {
@@ -244,6 +246,7 @@ void setup() {
     hexapod::Robot->init(_mode == 1);
   }
   motion::controller().begin();
+  performance::controller().begin();
   motion::controller().setSequenceCallback(handleSequenceComplete);
 
   // 创建电池监测任务
@@ -475,9 +478,9 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
   request->send(200, "application/json", responseStr);
 }
 
-/* UI 能力探测：仅返回 robot.type + legCount */
+/* UI 能力探测：返回机型、电源与表演能力 */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<512> doc;
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = kRobotType;
   robot["legCount"] = kRobotLegCount;
@@ -488,6 +491,11 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   power["voltageMv"] = voltageMv;
   power["percentEstimate"] = estimateBatteryPercent(voltageMv);
   power["lowBatteryThresholdMv"] = (uint16_t)(LOW_VOLTAGE_WARNING_THRESHOLD * 1000.0f + 0.5f);
+
+  JsonObject performanceCaps = doc.createNestedObject("performance");
+  performanceCaps["freestyle"] = performance::isSupported(performance::Kind::Freestyle);
+  performanceCaps["beatsway"] = performance::isSupported(performance::Kind::BeatSway);
+  performanceCaps["showtime"] = performance::isSupported(performance::Kind::Showtime);
 
   String responseStr;
   serializeJson(doc, responseStr);
@@ -763,6 +771,7 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         // 低电量锁存后：屏蔽所有控制指令（包括运动模式/速度/步态/序列）
         if (isLowBatteryLatched()) {
           motion::controller().clear("[Power] low battery, command ignored");
+          performance::controller().clear("[Power] low battery, command ignored");
           clearMovementFlag();
           sendLowBatteryErrorToWebSocket(client);
           return;
@@ -791,6 +800,11 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
 
         if (json.containsKey("movementMode")) {
           int16_t movementMode = json["movementMode"];
+
+          if (performance::controller().isActive()) {
+            motion::controller().clear("[Performance] overridden by movementMode");
+            performance::controller().clear("[Performance] overridden by movementMode");
+          }
 
           // 使用短超时时间获取锁
           if (xSemaphoreTake(flagMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -1129,6 +1143,7 @@ static void handleLowBatteryLatchedOnce() {
   }
 
   motion::controller().clear("[Power] low battery, force standby");
+  performance::controller().clear("[Power] low battery, clear performance");
   clearMovementFlag();
 
   StaticJsonDocument<192> doc;
@@ -1191,6 +1206,7 @@ static void handleSequenceComplete(uint32_t sequenceId) {
   sendSerialResponse(payload);
   wsRoverCmd.textAll(payload);
   Serial.printf("[MotionController] Sequence %u completed\n", sequenceId);
+  performance::controller().onSequenceComplete(sequenceId);
 }
 
 struct ModeNameEntry {
@@ -1241,6 +1257,8 @@ static bool parseMovementModeField(JsonVariantConst value, hexapod::MovementMode
       {"rotatez", hexapod::MOVEMENT_ROTATEZ},
       {"rotate_z", hexapod::MOVEMENT_ROTATEZ},
       {"twist", hexapod::MOVEMENT_TWIST},
+      {"beatsway", hexapod::MOVEMENT_BEATSWAY},
+      {"beat_sway", hexapod::MOVEMENT_BEATSWAY},
     };
     String lower = value.as<const char*>();
     lower.toLowerCase();
@@ -1252,6 +1270,28 @@ static bool parseMovementModeField(JsonVariantConst value, hexapod::MovementMode
     }
   }
 
+  return false;
+}
+
+static bool parsePerformanceKindField(JsonVariantConst value, performance::Kind& kind) {
+  if (value.isNull() || !value.is<const char*>()) {
+    return false;
+  }
+
+  String lower = value.as<const char*>();
+  lower.toLowerCase();
+  if (lower == "freestyle") {
+    kind = performance::Kind::Freestyle;
+    return true;
+  }
+  if (lower == "beatsway" || lower == "beat_sway") {
+    kind = performance::Kind::BeatSway;
+    return true;
+  }
+  if (lower == "showtime") {
+    kind = performance::Kind::Showtime;
+    return true;
+  }
   return false;
 }
 
@@ -1311,6 +1351,7 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
   if (json.containsKey("stop") && json["stop"].as<bool>()) {
     result.handled = true;
     motion::controller().clear("[Motion] stop command");
+    performance::controller().clear("[Motion] stop command");
     clearMovementFlag();
     result.success = true;
     result.message = "Motion stopped";
@@ -1320,13 +1361,41 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
   if (json.containsKey("clearQueue") && json["clearQueue"].as<bool>()) {
     result.handled = true;
     motion::controller().clear("[Motion] queue cleared");
+    performance::controller().clear("[Motion] queue cleared");
     result.success = true;
     result.message = "Queue cleared";
     return result;
   }
 
+  if (json.containsKey("performance")) {
+    result.handled = true;
+    performance::Kind kind;
+    if (!parsePerformanceKindField(json["performance"], kind)) {
+      result.success = false;
+      result.message = "unsupported performance";
+      return result;
+    }
+
+    const bool repeat = json["repeat"] | false;
+    const uint32_t requestedSequenceId = json["sequenceId"] | 0U;
+    String error;
+    uint32_t acceptedSequenceId = 0;
+    if (!performance::controller().start(kind, repeat, requestedSequenceId, error, acceptedSequenceId)) {
+      result.success = false;
+      result.message = error;
+      return result;
+    }
+
+    clearMovementFlag();
+    result.success = true;
+    result.sequenceId = acceptedSequenceId;
+    result.message = "performance accepted";
+    return result;
+  }
+
   if (json.containsKey("sequence")) {
     result.handled = true;
+    performance::controller().clear("[Performance] overridden by sequence");
     JsonArrayConst seq = json["sequence"].as<JsonArrayConst>();
     if (seq.isNull() || seq.size() == 0 || seq.size() > 5) {
       result.success = false;
@@ -1367,6 +1436,7 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
 
   if (hasActionParameters(json)) {
     result.handled = true;
+    performance::controller().clear("[Performance] overridden by single action");
     motion::Action action;
     String error;
     if (!buildActionFromJson(json, action, error)) {
@@ -1419,6 +1489,7 @@ void parseSerialMovementCommand(const String& jsonString) {
   // 低电量锁存后：屏蔽所有控制指令（包括运动模式/速度/步态/序列）
   if (isLowBatteryLatched()) {
     motion::controller().clear("[Power] low battery, command ignored");
+    performance::controller().clear("[Power] low battery, command ignored");
     clearMovementFlag();
     sendLowBatteryErrorToSerial();
     return;
@@ -1444,6 +1515,11 @@ void parseSerialMovementCommand(const String& jsonString) {
   if (json.containsKey("movementMode")) {
     hasValidCommand = true;
     int16_t movementMode = json["movementMode"];
+
+    if (performance::controller().isActive()) {
+      motion::controller().clear("[Performance] overridden by movementMode");
+      performance::controller().clear("[Performance] overridden by movementMode");
+    }
     
     // 验证运动模式范围
     // if (movementMode >= 0 && movementMode < hexapod::MOVEMENT_TOTAL) {

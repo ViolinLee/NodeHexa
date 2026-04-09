@@ -110,6 +110,16 @@
       transform: translateY(4px);
     }
 
+    .button-performance {
+      background-color: #6A5ACD;
+    }
+    .button-performance:hover {background-color: #7B68EE}
+    .button-performance:active {
+      background-color: #7B68EE;
+      box-shadow: 0 5px #666;
+      transform: translateY(4px);
+    }
+
     .grid-container {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -123,6 +133,10 @@
     .grid-item-3 { grid-column: span 3; }
     .empty { visibility: hidden; }
     .empty-row { grid-column: span 3; height: 20px; }
+    .performance-section {
+      display: none;
+      margin-top: 10px;
+    }
 
     /* 速度控制区域样式 */
     .speed-control {
@@ -543,6 +557,14 @@
     <button class="button button-move grid-item-3" onclick="sendCommand(3)" data-zh="后退" data-en="Backward">后退</button>
   </div>
 
+  <div class="performance-section" id="performancePanel">
+    <div class="grid-container">
+      <button class="button button-performance grid-item-1" id="performanceFreestyleBtn" onclick="sendPerformanceCommand('freestyle')" data-zh="自由律动" data-en="Freestyle">自由律动</button>
+      <button class="button button-performance grid-item-1" id="performanceBeatSwayBtn" onclick="sendPerformanceCommand('beatsway')" data-zh="节拍摇摆" data-en="Beat Sway">节拍摇摆</button>
+      <button class="button button-performance grid-item-1" id="performanceShowtimeBtn" onclick="sendPerformanceCommand('showtime')" data-zh="登场秀" data-en="Showtime">登场秀</button>
+    </div>
+  </div>
+
   <!-- AP配置模态框 -->
   <div id="settingsModal" class="modal">
     <div class="modal-content">
@@ -657,6 +679,11 @@
     let powerUi;
     let lowBatteryProtectionEnabled = true;
     let motionButtonMode = 'continuous';
+    let performanceCaps = {
+      freestyle: false,
+      beatsway: false,
+      showtime: false
+    };
     const commandModeToName = {
       0: 'standby',
       1: 'forward',
@@ -670,7 +697,8 @@
       9: 'rotatex',
       10: 'rotatey',
       11: 'rotatez',
-      12: 'twist'
+      12: 'twist',
+      13: 'beatsway'
     };
 
     function guardLowBattery() {
@@ -726,6 +754,14 @@
         return;
       }
       sendWsPayload({mode: movementName, cycles: 1});
+    }
+
+    function sendPerformanceCommand(kind) {
+      if (guardLowBattery()) return;
+      sendWsPayload({
+        performance: kind,
+        repeat: motionButtonMode !== 'single_cycle'
+      });
     }
 
     function sendCommand(commandMode) {
@@ -885,6 +921,28 @@
       container.style.display = (robotType === 'quad') ? 'block' : 'none';
     }
 
+    function updatePerformanceVisibility() {
+      const panel = document.getElementById('performancePanel');
+      if (!panel) return;
+
+      const buttonMap = {
+        freestyle: document.getElementById('performanceFreestyleBtn'),
+        beatsway: document.getElementById('performanceBeatSwayBtn'),
+        showtime: document.getElementById('performanceShowtimeBtn')
+      };
+
+      let hasVisibleButton = false;
+      Object.keys(buttonMap).forEach((key) => {
+        const button = buttonMap[key];
+        if (!button) return;
+        const visible = !!performanceCaps[key];
+        button.style.display = visible ? '' : 'none';
+        if (visible) hasVisibleButton = true;
+      });
+
+      panel.style.display = hasVisibleButton ? 'block' : 'none';
+    }
+
     function initSpeedControl() {
       const speedButtons = document.querySelectorAll('.speed-btn');
       
@@ -979,7 +1037,7 @@
       labelLowBatteryProtect: { zh: '低电量保护', en: 'Low battery protection' },
       hintLowBatteryProtect: { zh: '默认开启；关闭后低电量状态也允许运行', en: 'Enabled by default. Turn off to allow running under low battery.' },
       labelMotionButtonMode: { zh: '动作按钮模式', en: 'Motion button mode' },
-      hintMotionButtonMode: { zh: '持续：按钮持续生效；单次：每次点击完整执行 1 个动作周期，不排队。', en: 'Continuous: button keeps the movement active. Single: each tap runs exactly 1 full motion cycle with no queuing.' },
+      hintMotionButtonMode: { zh: '持续：普通动作持续生效，表演动作会循环播放；单次：普通动作执行 1 个动作周期，表演动作执行 1 次完整表演。', en: 'Continuous: basic motions stay active and performances loop. Single: basic motions run 1 cycle, while performances run one full show.' },
       motionButtonModeContinuous: { zh: '当前：持续', en: 'Current: Continuous' },
       motionButtonModeSingle: { zh: '当前：单次', en: 'Current: Single' }
     };
@@ -1121,6 +1179,11 @@
         const data = await resp.json();
         const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
         robotType = type;
+        performanceCaps = {
+          freestyle: !!(data && data.performance && data.performance.freestyle),
+          beatsway: !!(data && data.performance && data.performance.beatsway),
+          showtime: !!(data && data.performance && data.performance.showtime)
+        };
         if (powerUi) {
           powerUi.applyCaps(data);
           lowBatteryProtectionEnabled = !!powerUi.getState().lowBatteryProtectionEnabled;
@@ -1137,6 +1200,7 @@
         }
 
         updateGaitControlVisibility();
+        updatePerformanceVisibility();
         renderGaitExperimentalToggle();
         renderGaitRadios();
         // 进入页面时：若本地保存过步态偏好，则同步一次，避免 UI/机器人状态不一致。
@@ -1151,7 +1215,7 @@
         }
         document.getElementById('footerTitle').textContent = langTexts.footerTitle[currentLang];
       } catch (_) {
-        // ignore
+        updatePerformanceVisibility();
       }
     }
 
