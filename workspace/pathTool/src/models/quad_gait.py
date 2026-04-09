@@ -20,6 +20,14 @@ class QuadGait:
         self.home_z = home_z
         # gait constants
         self.amplitudeX, self.amplitudeY, self.amplitudeZ = 15, 15, 25
+        # walk 步态容易把右侧第 1 关节顶到 ±45° 附近，这里为方便调参单独提取出参数
+        self.walk_lift_x_scale = 0.5
+        self.walk_lift_y_scale = 2.4
+        self.walk_lift_z_scale = 1.0
+        self.walk_stance_y_scale = 2.4
+        self.forwardfast_stride_scale = 1.6
+        self.forwardfast_lift_z_scale = 0.6
+        self.walk_forwardfast_stride_scale = 1.05
         self.frame_time_ms = frame_time_ms
 
     def gen_path(self, gait_mode, move_status, gait_speed=0):
@@ -124,15 +132,21 @@ class QuadGait:
             for tick_cnt in range(num_ticks):
                 interp_id = stage_id * num_ticks + tick_cnt
                 if stage_id == 0:
-                    fl_path_quad[interp_id][0] = abs(self.amplitudeY) * sin(pi * tick_cnt / num_ticks) * 0.5
-                    fl_path_quad[interp_id][1] = -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * 3.5
-                    fl_path_quad[interp_id][2] = abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks) * 1.0
+                    fl_path_quad[interp_id][0] = (
+                        abs(self.amplitudeY) * sin(pi * tick_cnt / num_ticks) * self.walk_lift_x_scale
+                    )
+                    fl_path_quad[interp_id][1] = (
+                        -self.amplitudeX * cos(pi * tick_cnt / num_ticks) * self.walk_lift_y_scale
+                    )
+                    fl_path_quad[interp_id][2] = (
+                        abs(self.amplitudeZ) * sin(pi * tick_cnt / num_ticks) * self.walk_lift_z_scale
+                    )
                 elif stage_id in (1, 2, 3):
                     fl_path_quad[interp_id][0] = 0.0
                     fl_path_quad[interp_id][1] = (
                         self.amplitudeX
                         - self.amplitudeX * 2 * ((stage_id - 1) * num_ticks + tick_cnt) / (3 * num_ticks)
-                    ) * 3
+                    ) * self.walk_stance_y_scale
                     fl_path_quad[interp_id][2] = 0.0
 
         def right_rotate_path(path, rotation_num):

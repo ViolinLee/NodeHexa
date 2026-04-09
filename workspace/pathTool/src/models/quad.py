@@ -357,9 +357,13 @@ class QuadModel(RobotPathModel):
             # 通过临时调整 QuadGait 的振幅实现，生成后恢复，避免影响其他路径
             orig_amp_x = getattr(self.gait, "amplitudeX", 25)
             orig_amp_z = getattr(self.gait, "amplitudeZ", 25)
+            fast_stride_scale = getattr(self.gait, "forwardfast_stride_scale", 1.6)
+            if gait_mode == QuadGait.GAIT_WALK:
+                fast_stride_scale = getattr(self.gait, "walk_forwardfast_stride_scale", fast_stride_scale)
+            fast_lift_z_scale = getattr(self.gait, "forwardfast_lift_z_scale", 0.6)
             try:
-                self.gait.amplitudeX = float(orig_amp_x) * 1.6
-                self.gait.amplitudeZ = float(orig_amp_z) * 0.6
+                self.gait.amplitudeX = float(orig_amp_x) * float(fast_stride_scale)
+                self.gait.amplitudeZ = float(orig_amp_z) * float(fast_lift_z_scale)
                 frames_fast = self.gait.gen_path(gait_mode, QuadGait.MOVE_FORWARD, gait_speed=0)
             finally:
                 self.gait.amplitudeX = orig_amp_x
