@@ -6,7 +6,7 @@
 
 ![NodeHexa Logo](resource/frontal.jpg)
 
-**An ESP32-based hexapod robot project with additional quadruped firmware support, featuring Web control, calibration, and motion sequence planning.**
+**An ESP32-based hexapod robot project with additional quadruped firmware support, featuring Web control, calibration, performance motions, and motion sequence planning.**
 
 [![Platform](https://img.shields.io/badge/Platform-ESP32-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Framework](https://img.shields.io/badge/Framework-Arduino-green.svg)](https://www.arduino.cc/)
@@ -47,6 +47,9 @@ This repository also provides **quadruped firmware support**, allowing both robo
 - **Lateral movement**: Move left, move right
 - **Posture control**: X/Y/Z-axis rotation and twisting actions
 - **Special actions**: Climbing and fast-forward mode
+- **Performance modes**: Freestyle, Beat Sway, and Showtime
+- **Motion button mode switching**: Supports both `continuous` and `single-cycle` triggering for basic motions and performance motions
+- **Single-leg demo mode (hexapod only)**: Select one leg and demonstrate forward/lateral/lift movement independently
 - **Quadruped multi-gait switching**: Trot / Walk / Gallop / Creep
 - **Motion sequence planning**: Chain multiple actions with constraints such as cycle/steps/distance/angle, then run in one click (see `/planner`)
 
@@ -55,6 +58,7 @@ This repository also provides **quadruped firmware support**, allowing both robo
 - **Parameter persistence** - Calibration data is automatically saved to Flash storage
 
 ### 🔋 Safety protection
+- **Battery badge** - Real-time voltage and estimated battery percentage on both the controller and planner pages
 - **Battery monitoring** - Real-time battery voltage monitoring
 - **Low-voltage protection** - Automatic LED warning and system protection
 
@@ -198,14 +202,19 @@ Or click **[NodeHexa Tutorials]** below to open the WeChat article list directly
 1. Power on the robot and connect to WiFi hotspot `NodeHexa` (password: `roboticscv666`)
 2. Visit `http://192.168.4.1` to open the control panel
 3. Perform servo calibration (visit `/calibration`)
-4. (Optional) Open motion planner (visit `/planner`) and arrange action sequences
-5. Start controlling the robot
+4. (Optional) Adjust WiFi AP, low-battery protection, and motion button mode in Settings
+5. (Optional) Open motion planner (visit `/planner`) and arrange action sequences
+6. Start controlling the robot
 
 ## 📱 Web Control Interface
 
 ### Main control page
 - **Movement control**: Forward, backward, turning, lateral movement, etc.
 - **Posture control**: 3-axis rotation and twisting actions
+- **Performance modes**: Freestyle, Beat Sway, and Showtime
+- **Single-leg demo (hexapod only)**: Select one leg and control lateral/forward/lift movement in real time
+- **Battery badge**: Real-time voltage, estimated battery percentage, and low-battery status
+- **Settings entry**: Configure WiFi AP, low-battery protection, motion button mode, and view firmware version
 - **Calibration entry**: One-click calibration mode
 - **Motion planner**: Enter `/planner` to arrange and send motion sequences (single actions can also run directly)
 
@@ -215,8 +224,10 @@ Or click **[NodeHexa Tutorials]** below to open the WeChat article list directly
 - **Auto-save**: Calibration data is automatically stored
 
 ### Motion planner page (action sequence)
+- **Battery display**: Shares the same live voltage and battery-percentage badge as the main page
 - **Single action**: Run one constrained action by cycle/steps/distance (posture actions support cycle only)
 - **Action sequence**: Run multiple actions in order (up to 5 segments)
+- **Queue control**: Supports appending, clearing the queue, and emergency stop
 
 ## ❓ FAQ
 
