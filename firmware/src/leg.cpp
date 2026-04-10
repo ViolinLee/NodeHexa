@@ -58,6 +58,16 @@ namespace hexapod {
             dest.y_ = src.x_ * (-SIN45) + src.y_ * COS45;
             dest.z_ = src.z_;
         }
+
+        float clampUnit(float value) {
+            if (value < -1.0f) {
+                return -1.0f;
+            }
+            if (value > 1.0f) {
+                return 1.0f;
+            }
+            return value;
+        }
     }
 
     // Public
@@ -93,6 +103,11 @@ namespace hexapod {
             mountPosition_ = Point3D(-kLegMountOtherX, kLegMountOtherY, 0);
             localConv_ = rotate225;
             worldConv_ = rotate135;
+            break;
+        default:
+            mountPosition_ = Point3D(0, 0, 0);
+            localConv_ = rotate0;
+            worldConv_ = rotate0;
             break;
         }
 
@@ -187,8 +202,13 @@ namespace hexapod {
         float ar = std::atan2(y, x);
         float lr2 = x*x + y*y;
         float lr = std::sqrt(lr2);
-        float a1 = std::acos((lr2 + kLegJoint2ToJoint3*kLegJoint2ToJoint3 - kLegJoint3ToTip*kLegJoint3ToTip)/(2*kLegJoint2ToJoint3*lr));
-        float a2 = std::acos((lr2 - kLegJoint2ToJoint3*kLegJoint2ToJoint3 + kLegJoint3ToTip*kLegJoint3ToTip)/(2*kLegJoint3ToTip*lr));
+        if (lr < 1e-4f) {
+            lr = 1e-4f;
+        }
+        float ratio1 = (lr2 + kLegJoint2ToJoint3*kLegJoint2ToJoint3 - kLegJoint3ToTip*kLegJoint3ToTip)/(2*kLegJoint2ToJoint3*lr);
+        float ratio2 = (lr2 - kLegJoint2ToJoint3*kLegJoint2ToJoint3 + kLegJoint3ToTip*kLegJoint3ToTip)/(2*kLegJoint3ToTip*lr);
+        float a1 = std::acos(clampUnit(ratio1));
+        float a2 = std::acos(clampUnit(ratio2));
         angles[1] = (ar + a1) * 180 / pi;
         angles[2] = 90 - ((a1 + a2)  * 180 / pi);
     }

@@ -49,6 +49,39 @@ namespace hexapod {
         virtual void setGaitMode(int gaitMode) {
             (void)gaitMode;
         }
+
+        // 单腿控制能力（默认不支持，具体机型按需覆盖）
+        virtual bool supportsSingleLegControl() const {
+            return false;
+        }
+
+        virtual bool beginSingleLegControl(int legIndex, Point3D& standbyTip) {
+            (void)legIndex;
+            (void)standbyTip;
+            return false;
+        }
+
+        virtual bool applySingleLegControl(int legIndex, const Point3D& targetTip) {
+            (void)legIndex;
+            (void)targetTip;
+            return false;
+        }
+
+        virtual bool singleLegWorldToLocal(int legIndex, const Point3D& worldTip, Point3D& localTip) {
+            (void)legIndex;
+            (void)worldTip;
+            (void)localTip;
+            return false;
+        }
+
+        virtual bool singleLegLocalToWorld(int legIndex, const Point3D& localTip, Point3D& worldTip) {
+            (void)legIndex;
+            (void)localTip;
+            (void)worldTip;
+            return false;
+        }
+
+        virtual void endSingleLegControl() {}
     };
 
     // 当前正在使用的机器人实例指针

@@ -394,6 +394,16 @@
       font-weight: bold;
       color: #333;
     }
+    .firmware-version-badge {
+      display: inline-block;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      color: #333;
+      font-size: 13px;
+      font-family: monospace;
+      border: 1px solid #e5e7eb;
+    }
     .form-input {
       width: 100%;
       padding: 10px;
@@ -565,6 +575,8 @@
     </div>
   </div>
 
+  <div id="singleLegPanelMount"></div>
+
   <!-- AP配置模态框 -->
   <div id="settingsModal" class="modal">
     <div class="modal-content">
@@ -640,6 +652,10 @@
             </label>
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label" id="labelFirmwareVersion">固件版本</label>
+          <div class="firmware-version-badge" id="firmwareVersionBadge">v2.1.0</div>
+        </div>
         <div class="status-message" id="otherStatusMessage"></div>
       </div>
     </div>
@@ -673,6 +689,7 @@
   </footer>
   
   <script src="/power_ui.js"></script>
+  <script src="/single_leg_panel.js"></script>
   <script>
     var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd"; 
     let websocketCarInput;
@@ -713,6 +730,9 @@
       };
       websocketCarInput.onclose = function(event) {
         console.log('WebSocket is closed now. Reconnecting...');
+        if (window.SingleLegPanel) {
+          window.SingleLegPanel.handleSocketClosed();
+        }
         setTimeout(initRobotInputWebSocket, 2000);
       };
       websocketCarInput.onmessage = function(event) {
@@ -744,7 +764,16 @@
     }
 
     function sendStopCommand() {
+      if (window.SingleLegPanel) {
+        window.SingleLegPanel.forceResetUi();
+      }
       sendWsPayload({stop: true});
+    }
+
+    function resetSingleLegPanelUi() {
+      if (window.SingleLegPanel) {
+        window.SingleLegPanel.forceResetUi();
+      }
     }
 
     function sendSingleCycleCommand(commandMode) {
@@ -758,6 +787,7 @@
 
     function sendPerformanceCommand(kind) {
       if (guardLowBattery()) return;
+      resetSingleLegPanelUi();
       sendWsPayload({
         performance: kind,
         repeat: motionButtonMode !== 'single_cycle'
@@ -770,6 +800,7 @@
         sendStopCommand();
         return;
       }
+      resetSingleLegPanelUi();
       if (motionButtonMode === 'single_cycle') {
         sendSingleCycleCommand(commandMode);
       } else {
@@ -1037,6 +1068,7 @@
       labelLowBatteryProtect: { zh: '低电量保护', en: 'Low battery protection' },
       hintLowBatteryProtect: { zh: '默认开启；关闭后低电量状态也允许运行', en: 'Enabled by default. Turn off to allow running under low battery.' },
       labelMotionButtonMode: { zh: '动作按钮模式', en: 'Motion button mode' },
+      labelFirmwareVersion: { zh: '固件版本', en: 'Firmware Version' },
       hintMotionButtonMode: { zh: '持续：普通动作持续生效，表演动作会循环播放；单次：普通动作执行 1 个动作周期，表演动作执行 1 次完整表演。', en: 'Continuous: basic motions stay active and performances loop. Single: basic motions run 1 cycle, while performances run one full show.' },
       motionButtonModeContinuous: { zh: '当前：持续', en: 'Current: Continuous' },
       motionButtonModeSingle: { zh: '当前：单次', en: 'Current: Single' }
@@ -1108,6 +1140,9 @@
       // 更新模态框文本
       updateModalTexts();
       if (powerUi) powerUi.render();
+      if (window.SingleLegPanel) {
+        window.SingleLegPanel.updateLanguage(currentLang);
+      }
       
       console.log('Language switched to: ' + (currentLang === 'zh' ? '中文' : 'English'));
     }
@@ -1135,6 +1170,8 @@
       if (motionLabel) motionLabel.textContent = langTexts.labelMotionButtonMode[currentLang];
       const motionHint = document.getElementById('hintMotionButtonMode');
       if (motionHint) motionHint.textContent = langTexts.hintMotionButtonMode[currentLang];
+      const firmwareLabel = document.getElementById('labelFirmwareVersion');
+      if (firmwareLabel) firmwareLabel.textContent = langTexts.labelFirmwareVersion[currentLang];
       updateMotionButtonModeStateText();
     }
 
@@ -1201,6 +1238,9 @@
 
         updateGaitControlVisibility();
         updatePerformanceVisibility();
+        if (window.SingleLegPanel) {
+          window.SingleLegPanel.applyCaps(data);
+        }
         renderGaitExperimentalToggle();
         renderGaitRadios();
         // 进入页面时：若本地保存过步态偏好，则同步一次，避免 UI/机器人状态不一致。
@@ -1478,6 +1518,17 @@
         }
       });
       powerUi.render();
+      if (window.SingleLegPanel) {
+        window.SingleLegPanel.init({
+          mount: document.getElementById('singleLegPanelMount'),
+          sendWsPayload,
+          guardLowBattery,
+          getRobotType: () => robotType,
+          getCurrentLang: () => currentLang,
+          requestExclusiveControl: () => sendWsPayload({stop: true})
+        });
+        window.SingleLegPanel.updateLanguage(currentLang);
+      }
       initRobotInputWebSocket();
       initSpeedControl();
       initGaitControl();

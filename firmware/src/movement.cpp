@@ -51,8 +51,12 @@ namespace hexapod {
     }
 
     void Movement::setMode(MovementMode newMode) {
+        if (newMode < 0 || newMode >= MOVEMENT_TOTAL) {
+            LOG_INFO("Error: invalid movement mode(%d)!", newMode);
+            return;
+        }
 
-        if (!kTable[newMode].entries) {
+        if (!kTable[newMode].entries || kTable[newMode].entriesCount <= 0 || kTable[newMode].length <= 0) {
             LOG_INFO("Error: null movement of mode(%d)!", newMode);
             return;
         }
@@ -65,6 +69,28 @@ namespace hexapod {
         int actualDuration = (int)(table.stepDuration / speed_);
         int actualSwitchDuration = (int)(config::movementSwitchDuration / speed_);
         remainTime_ = actualSwitchDuration > actualDuration ? actualSwitchDuration : actualDuration;
+    }
+
+    void Movement::snapToMode(MovementMode newMode) {
+        if (newMode < 0 || newMode >= MOVEMENT_TOTAL) {
+            newMode = MOVEMENT_STANDBY;
+        }
+
+        const MovementTable& table = kTable[newMode];
+        if (!table.entries || table.entriesCount <= 0 || table.length <= 0) {
+            mode_ = newMode;
+            index_ = 0;
+            remainTime_ = 0;
+            return;
+        }
+
+        mode_ = newMode;
+        index_ = table.entries[0];
+        if (index_ < 0 || index_ >= table.length) {
+            index_ = 0;
+        }
+        position_ = table.table[index_];
+        remainTime_ = 0;
     }
 
     const Locations& Movement::next(int elapsed) {

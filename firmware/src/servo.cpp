@@ -77,11 +77,11 @@ namespace hexapod {
 
         if (angle > range_ + adjust_angle_) {
             LOG_INFO("exceed[%d][%f]", pwm2hexapod(pwmIndex_), angle);
-            angle = range_;
+            angle = range_ + adjust_angle_;
         }
         else if(angle < -range_ + adjust_angle_) {
             LOG_INFO("exceed[%d][%f]", pwm2hexapod(pwmIndex_), angle);
-            angle = -range_;
+            angle = -range_ + adjust_angle_;
         }
 
         angle_ = angle;

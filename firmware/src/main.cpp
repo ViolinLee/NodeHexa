@@ -34,6 +34,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "robot.h"
 #include "motion_controller.h"
 #include "performance_controller.h"
+#include "single_leg_controller.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -123,6 +124,8 @@ void handleCapsGet(AsyncWebServerRequest *request);
 // 通用设置接口（用于承载未来更多配置项）
 void handleSettingsGet(AsyncWebServerRequest *request);
 void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+static String* appendRequestBodyChunk(AsyncWebServerRequest *request, const uint8_t *data, size_t len, size_t index, size_t total);
+static void clearRequestBodyChunk(AsyncWebServerRequest *request);
 
 void BatteryMonitorTask(void *pvParameters);
 void LEDControllerTask(void *pvParameters);
@@ -150,6 +153,7 @@ static bool shouldUseMovingLowBatteryThreshold();
 struct AdvancedCommandResult {
   bool handled = false;
   bool success = false;
+  bool suppressAck = false;
   uint32_t sequenceId = 0;
   String message;
 };
@@ -159,6 +163,7 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json);
 static bool parseMovementModeField(JsonVariantConst value, hexapod::MovementMode& mode);
 static bool parsePerformanceKindField(JsonVariantConst value, performance::Kind& kind);
 static bool buildActionFromJson(JsonVariantConst obj, motion::Action& action, String& error);
+static bool hasActionParameters(JsonVariantConst json);
 
 void setup() {
   // 初始化串口
@@ -200,6 +205,9 @@ void setup() {
   server.on("/planner.html", HTTP_GET, handleMotionPlanner);
   server.on("/power_ui.js", HTTP_GET, [](AsyncWebServerRequest *request) {
     sendFileFromSpiffs(request, "/power_ui.js", "application/javascript; charset=utf-8");
+  });
+  server.on("/single_leg_panel.js", HTTP_GET, [](AsyncWebServerRequest *request) {
+    sendFileFromSpiffs(request, "/single_leg_panel.js", "application/javascript; charset=utf-8");
   });
   server.on("/calibration", HTTP_GET, handleCalibrationPage);
   server.on("/calibration", HTTP_POST, 
@@ -247,6 +255,7 @@ void setup() {
   }
   motion::controller().begin();
   performance::controller().begin();
+  singleleg::controller().begin();
   motion::controller().setSequenceCallback(handleSequenceComplete);
 
   // 创建电池监测任务
@@ -328,8 +337,15 @@ void normal_loop() {
 
   auto t0 = millis();
 
-  auto mode = hexapod::MOVEMENT_STANDBY;
-  if (!lowBattery) {
+  if (lowBattery) {
+    if (hexapod::Robot) {
+      hexapod::Robot->processMovement(hexapod::MOVEMENT_STANDBY, REACT_DELAY);
+    }
+    motion::controller().onLoopTick(hexapod::MOVEMENT_STANDBY, REACT_DELAY);
+  } else if (singleleg::controller().isActive()) {
+    singleleg::controller().onLoopTick(REACT_DELAY);
+  } else {
+    auto mode = hexapod::MOVEMENT_STANDBY;
     if (motion::controller().hasActiveAction()) {
       mode = motion::controller().activeMode();
     } else {
@@ -343,18 +359,15 @@ void normal_loop() {
         xSemaphoreGive(flagMutex);
       }
     }
-  } else {
-    // 低电量锁存后：强制待机
-    mode = hexapod::MOVEMENT_STANDBY;
-  }
 
-  if (hexapod::Robot) {
-    hexapod::Robot->processMovement(mode, REACT_DELAY);
+    if (hexapod::Robot) {
+      hexapod::Robot->processMovement(mode, REACT_DELAY);
+    }
+    // 对四足：动作切换存在“等待 entry/对齐”的过渡期，此时实际执行 mode 可能不同。
+    // 为保证序列单位(cycles)的计时准确，应以“实际执行的 mode”来累计 completedCycles。
+    const auto executedMode = hexapod::Robot ? hexapod::Robot->executedMovementMode(mode) : mode;
+    motion::controller().onLoopTick(executedMode, REACT_DELAY);
   }
-  // 对四足：动作切换存在“等待 entry/对齐”的过渡期，此时实际执行 mode 可能不同。
-  // 为保证序列单位(cycles)的计时准确，应以“实际执行的 mode”来累计 completedCycles。
-  const auto executedMode = hexapod::Robot ? hexapod::Robot->executedMovementMode(mode) : mode;
-  motion::controller().onLoopTick(executedMode, REACT_DELAY);
 
   auto spent = millis() - t0;
 
@@ -497,12 +510,59 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   performanceCaps["beatsway"] = performance::isSupported(performance::Kind::BeatSway);
   performanceCaps["showtime"] = performance::isSupported(performance::Kind::Showtime);
 
+  JsonObject manualCaps = doc.createNestedObject("manual");
+#ifdef ROBOT_MODEL_NODEQUADMINI
+  manualCaps["singleLeg"] = false;
+#else
+  manualCaps["singleLeg"] = true;
+#endif
+
   String responseStr;
   serializeJson(doc, responseStr);
   request->send(200, "application/json", responseStr);
 }
 
+static String* appendRequestBodyChunk(AsyncWebServerRequest *request,
+                                      const uint8_t *data,
+                                      size_t len,
+                                      size_t index,
+                                      size_t total) {
+  if (!request) {
+    return nullptr;
+  }
 
+  if (index == 0 || request->_tempObject == nullptr) {
+    clearRequestBodyChunk(request);
+    auto *body = new String();
+    body->reserve(total);
+    request->_tempObject = body;
+  }
+
+  auto *body = static_cast<String*>(request->_tempObject);
+  if (!body) {
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < len; ++i) {
+    *body += static_cast<char>(data[i]);
+  }
+
+  if (index + len < total) {
+    return nullptr;
+  }
+
+  return body;
+}
+
+static void clearRequestBodyChunk(AsyncWebServerRequest *request) {
+  if (!request || !request->_tempObject) {
+    return;
+  }
+
+  auto *body = static_cast<String*>(request->_tempObject);
+  delete body;
+  request->_tempObject = nullptr;
+}
 
 /* HandleNotFound
 */
@@ -550,10 +610,14 @@ void handleApConfigGet(AsyncWebServerRequest *request) {
 }
 
 void handleApConfigPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  String body = String((char*)data).substring(0, len);
+  String *body = appendRequestBodyChunk(request, data, len, index, total);
+  if (!body) {
+    return;
+  }
   
   StaticJsonDocument<256> doc;
-  DeserializationError error = deserializeJson(doc, body);
+  DeserializationError error = deserializeJson(doc, *body);
+  clearRequestBodyChunk(request);
   
   if (error) {
     request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
@@ -655,12 +719,14 @@ void handleSettingsGet(AsyncWebServerRequest *request) {
 }
 
 void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  (void)index;
-  (void)total;
-  String body = String((char*)data).substring(0, len);
+  String *body = appendRequestBodyChunk(request, data, len, index, total);
+  if (!body) {
+    return;
+  }
 
   StaticJsonDocument<384> doc;
-  DeserializationError error = deserializeJson(doc, body);
+  DeserializationError error = deserializeJson(doc, *body);
+  clearRequestBodyChunk(request);
   if (error) {
     request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
     return;
@@ -754,6 +820,7 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         flag = 0;  
         xSemaphoreGive(flagMutex);
       }
+      singleleg::controller().stop("[SingleLeg] websocket disconnected");
       break;
     case WS_EVT_DATA:
       AwsFrameInfo *info;
@@ -765,6 +832,14 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         if (err) {
           Serial.print(F("deserializeJson() failed with code: "));
           Serial.println(err.c_str());
+          if (client) {
+            StaticJsonDocument<160> ack;
+            ack["status"] = "error";
+            ack["message"] = "Invalid JSON format";
+            String payload;
+            serializeJson(ack, payload);
+            client->text(payload);
+          }
           return;
         }
 
@@ -772,33 +847,39 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         if (isLowBatteryLatched()) {
           motion::controller().clear("[Power] low battery, command ignored");
           performance::controller().clear("[Power] low battery, command ignored");
+          singleleg::controller().stop("[Power] low battery, single leg ignored");
           clearMovementFlag();
           sendLowBatteryErrorToWebSocket(client);
           return;
         }
-        
+
         AdvancedCommandResult adv = handleAdvancedMotionCommand(json.as<JsonVariantConst>());
         if (adv.handled) {
-          StaticJsonDocument<160> ack;
-          ack["status"] = adv.success ? "success" : "error";
-          ack["message"] = adv.message;
-          if (adv.sequenceId) {
-            ack["sequenceId"] = adv.sequenceId;
+          if (!adv.suppressAck) {
+            if (adv.success) {
+              Serial.println("[WebSocket] Advanced motion command accepted");
+            } else {
+              Serial.printf("[WebSocket] Advanced command failed: %s\n", adv.message.c_str());
+            }
           }
-          String payload;
-          serializeJson(ack, payload);
-          if (adv.success) {
-            Serial.println("[WebSocket] Advanced motion command accepted");
-          } else {
-            Serial.printf("[WebSocket] Advanced command failed: %s\n", adv.message.c_str());
-          }
-          if (client) {
+          if (!adv.suppressAck && client) {
+            StaticJsonDocument<160> ack;
+            ack["status"] = adv.success ? "success" : "error";
+            ack["message"] = adv.message;
+            if (adv.sequenceId) {
+              ack["sequenceId"] = adv.sequenceId;
+            }
+            String payload;
+            serializeJson(ack, payload);
             client->text(payload);
           }
           return;
         }
 
         if (json.containsKey("movementMode")) {
+          if (singleleg::controller().isActive()) {
+            singleleg::controller().stop("[SingleLeg] overridden by movementMode");
+          }
           int16_t movementMode = json["movementMode"];
 
           if (performance::controller().isActive()) {
@@ -815,6 +896,9 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
             xSemaphoreGive(flagMutex);
           } else {
             Serial.println("WebSocket: Failed to acquire flag lock, command ignored");
+            if (client) {
+              client->text("{\"status\":\"error\",\"message\":\"System busy, command ignored\"}");
+            }
           }
         }
         
@@ -1144,6 +1228,7 @@ static void handleLowBatteryLatchedOnce() {
 
   motion::controller().clear("[Power] low battery, force standby");
   performance::controller().clear("[Power] low battery, clear performance");
+  singleleg::controller().stop("[Power] low battery, clear single leg");
   clearMovementFlag();
 
   StaticJsonDocument<192> doc;
@@ -1352,6 +1437,7 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
     result.handled = true;
     motion::controller().clear("[Motion] stop command");
     performance::controller().clear("[Motion] stop command");
+    singleleg::controller().stop("[SingleLeg] stop command");
     clearMovementFlag();
     result.success = true;
     result.message = "Motion stopped";
@@ -1362,13 +1448,86 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
     result.handled = true;
     motion::controller().clear("[Motion] queue cleared");
     performance::controller().clear("[Motion] queue cleared");
+    singleleg::controller().stop("[SingleLeg] queue cleared");
     result.success = true;
     result.message = "Queue cleared";
     return result;
   }
 
+  if (json.containsKey("singleLeg")) {
+    result.handled = true;
+
+    JsonObjectConst singleLeg = json["singleLeg"].as<JsonObjectConst>();
+    if (singleLeg.isNull()) {
+      result.success = false;
+      result.message = "singleLeg must be an object";
+      return result;
+    }
+
+    String op = singleLeg["op"] | "";
+    op.toLowerCase();
+
+    if (op == "start") {
+      const int legIndex = singleLeg["legIndex"] | -1;
+      if (legIndex < 0 || legIndex >= 6) {
+        result.success = false;
+        result.message = "invalid leg index";
+        return result;
+      }
+
+      motion::controller().clear("[SingleLeg] start override");
+      performance::controller().clear("[SingleLeg] start override");
+      clearMovementFlag();
+      singleleg::controller().stop("[SingleLeg] restart");
+
+      String error;
+      if (!singleleg::controller().start(static_cast<uint8_t>(legIndex), error)) {
+        result.success = false;
+        result.message = error;
+        return result;
+      }
+
+      result.success = true;
+      result.message = "single leg control started";
+      return result;
+    }
+
+    if (op == "input") {
+      if (!singleleg::controller().isActive()) {
+        result.success = false;
+        result.message = "single leg control not active";
+        return result;
+      }
+
+      singleleg::InputAxes axes;
+      axes.lx = singleLeg["lx"] | 0.0f;
+      axes.ly = singleLeg["ly"] | 0.0f;
+      axes.rz = singleLeg["rz"] | 0.0f;
+      singleleg::controller().updateInput(axes);
+
+      result.success = true;
+      result.suppressAck = true;
+      result.message = "single leg input accepted";
+      return result;
+    }
+
+    if (op == "stop") {
+      singleleg::controller().stop("[SingleLeg] stop command");
+      result.success = true;
+      result.message = "single leg control stopped";
+      return result;
+    }
+
+    result.success = false;
+    result.message = "unsupported singleLeg operation";
+    return result;
+  }
+
   if (json.containsKey("performance")) {
     result.handled = true;
+    if (singleleg::controller().isActive()) {
+      singleleg::controller().stop("[SingleLeg] overridden by performance");
+    }
     performance::Kind kind;
     if (!parsePerformanceKindField(json["performance"], kind)) {
       result.success = false;
@@ -1395,6 +1554,9 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
 
   if (json.containsKey("sequence")) {
     result.handled = true;
+    if (singleleg::controller().isActive()) {
+      singleleg::controller().stop("[SingleLeg] overridden by sequence");
+    }
     performance::controller().clear("[Performance] overridden by sequence");
     JsonArrayConst seq = json["sequence"].as<JsonArrayConst>();
     if (seq.isNull() || seq.size() == 0 || seq.size() > 5) {
@@ -1436,6 +1598,9 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
 
   if (hasActionParameters(json)) {
     result.handled = true;
+    if (singleleg::controller().isActive()) {
+      singleleg::controller().stop("[SingleLeg] overridden by single action");
+    }
     performance::controller().clear("[Performance] overridden by single action");
     motion::Action action;
     String error;
@@ -1490,22 +1655,25 @@ void parseSerialMovementCommand(const String& jsonString) {
   if (isLowBatteryLatched()) {
     motion::controller().clear("[Power] low battery, command ignored");
     performance::controller().clear("[Power] low battery, command ignored");
+    singleleg::controller().stop("[Power] low battery, single leg ignored");
     clearMovementFlag();
     sendLowBatteryErrorToSerial();
     return;
   }
-  
+
   AdvancedCommandResult adv = handleAdvancedMotionCommand(json.as<JsonVariantConst>());
   if (adv.handled) {
-    StaticJsonDocument<192> response;
-    response["status"] = adv.success ? "success" : "error";
-    response["message"] = adv.message;
-    if (adv.sequenceId) {
-      response["sequenceId"] = adv.sequenceId;
+    if (!adv.suppressAck) {
+      StaticJsonDocument<192> response;
+      response["status"] = adv.success ? "success" : "error";
+      response["message"] = adv.message;
+      if (adv.sequenceId) {
+        response["sequenceId"] = adv.sequenceId;
+      }
+      String payload;
+      serializeJson(response, payload);
+      sendSerialResponse(payload);
     }
-    String payload;
-    serializeJson(response, payload);
-    sendSerialResponse(payload);
     return;
   }
 
@@ -1513,6 +1681,9 @@ void parseSerialMovementCommand(const String& jsonString) {
 
   // 检查是否包含movementMode字段
   if (json.containsKey("movementMode")) {
+    if (singleleg::controller().isActive()) {
+      singleleg::controller().stop("[SingleLeg] overridden by movementMode");
+    }
     hasValidCommand = true;
     int16_t movementMode = json["movementMode"];
 

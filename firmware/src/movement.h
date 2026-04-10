@@ -45,6 +45,7 @@ namespace hexapod {
         Movement(MovementMode mode);
 
         void setMode(MovementMode newMode);
+        void snapToMode(MovementMode newMode);
 
         const Locations& next(int elapsed);
 

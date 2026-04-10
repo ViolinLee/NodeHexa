@@ -27,6 +27,8 @@ namespace hexapod {
         Servo::init();
 
         calibrationLoad();
+        movement_.snapToMode(MOVEMENT_STANDBY);
+        mode_ = MOVEMENT_STANDBY;
 
         if (isReset)
             forceResetAllLegTippos();
@@ -47,6 +49,73 @@ namespace hexapod {
         auto& location = movement_.next(elapsed);
         for(int i=0;i<6;i++) {
             legs_[i].moveTip(location.get(i));
+        }
+    }
+
+    bool HexapodClass::supportsSingleLegControl() const {
+        return true;
+    }
+
+    bool HexapodClass::beginSingleLegControl(int legIndex, Point3D& standbyTip) {
+        if (legIndex < 0 || legIndex >= 6) {
+            return false;
+        }
+
+        const auto& table = getMovementTable(MOVEMENT_STANDBY);
+        if (!table.table || table.length <= 0) {
+            return false;
+        }
+
+        movement_.snapToMode(MOVEMENT_STANDBY);
+        mode_ = MOVEMENT_STANDBY;
+
+        standbyTip = table.table[0].get(legIndex);
+        return true;
+    }
+
+    bool HexapodClass::applySingleLegControl(int legIndex, const Point3D& targetTip) {
+        if (legIndex < 0 || legIndex >= 6) {
+            return false;
+        }
+
+        const auto& table = getMovementTable(MOVEMENT_STANDBY);
+        if (!table.table || table.length <= 0) {
+            return false;
+        }
+
+        for (int i = 0; i < 6; ++i) {
+            const Point3D& tip = (i == legIndex) ? targetTip : table.table[0].get(i);
+            legs_[i].moveTip(tip);
+        }
+        return true;
+    }
+
+    bool HexapodClass::singleLegWorldToLocal(int legIndex, const Point3D& worldTip, Point3D& localTip) {
+        if (legIndex < 0 || legIndex >= 6) {
+            return false;
+        }
+        legs_[legIndex].translateToLocal(worldTip, localTip);
+        return true;
+    }
+
+    bool HexapodClass::singleLegLocalToWorld(int legIndex, const Point3D& localTip, Point3D& worldTip) {
+        if (legIndex < 0 || legIndex >= 6) {
+            return false;
+        }
+        legs_[legIndex].translateToWorld(localTip, worldTip);
+        return true;
+    }
+
+    void HexapodClass::endSingleLegControl() {
+        const auto& table = getMovementTable(MOVEMENT_STANDBY);
+        if (!table.table || table.length <= 0) {
+            return;
+        }
+
+        movement_.snapToMode(MOVEMENT_STANDBY);
+        mode_ = MOVEMENT_STANDBY;
+        for (int i = 0; i < 6; ++i) {
+            legs_[i].moveTip(table.table[0].get(i));
         }
     }
 
@@ -123,10 +192,17 @@ namespace hexapod {
     }
 
     void HexapodClass::calibrationGet(int legIndex, int partIndex, int& offset) {
+        if (legIndex < 0 || legIndex >= 6 || partIndex < 0 || partIndex >= 3) {
+            offset = 0;
+            return;
+        }
         legs_[legIndex].get(partIndex)->getParameter(offset);
     }
 
     void HexapodClass::calibrationSet(int legIndex, int partIndex, int offset) {
+        if (legIndex < 0 || legIndex >= 6 || partIndex < 0 || partIndex >= 3) {
+            return;
+        }
         char buffer[100]; 
         snprintf(buffer, sizeof(buffer), "腿部关节舵机校准: 腿部索引[%d] 关节索引[%d] 偏移量[%d]", legIndex, partIndex, offset);
         LOG_INFO(buffer);
@@ -139,6 +215,9 @@ namespace hexapod {
     }
 
     void HexapodClass::calibrationTest(int legIndex, int partIndex, float angle) {
+        if (legIndex < 0 || legIndex >= 6 || partIndex < 0 || partIndex >= 3) {
+            return;
+        }
         legs_[legIndex].get(partIndex)->setAngle(angle);
     }
 
@@ -162,6 +241,7 @@ namespace hexapod {
         if (error) {
             Serial.print("Failed to read file, using default configuration: ");
             Serial.println(error.c_str());
+            file.close();
             return;
         }
         LOG_INFO("Read Servo Motors Calibration Data:");
@@ -172,6 +252,9 @@ namespace hexapod {
             char leg[5];
             sprintf(leg, "leg%d", i);
             JsonArray legData = doc[leg];
+            if (legData.isNull() || legData.size() < 3) {
+                continue;
+            }
             for (int j = 0; j < 3; j++) {
                 int param = legData[j];
                 // 上电加载校准参数时不要立刻输出 PWM（否则会先打一帧 angle_=0 的位置，造成关节“抽搐一下”）。
@@ -193,9 +276,7 @@ namespace hexapod {
 
     void HexapodClass::forceResetAllLegTippos() {
         for(int i=0; i<6; i++) {
-            for(int j=0; j<3; j++) {
-                legs_[i].forceResetTipPosition();
-            }
+            legs_[i].forceResetTipPosition();
         }
     }
 
