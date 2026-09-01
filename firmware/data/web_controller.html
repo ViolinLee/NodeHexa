@@ -654,7 +654,7 @@
         </div>
         <div class="form-group">
           <label class="form-label" id="labelFirmwareVersion">固件版本</label>
-          <div class="firmware-version-badge" id="firmwareVersionBadge">v2.1.0</div>
+          <div class="firmware-version-badge" id="firmwareVersionBadge">v--</div>
         </div>
         <div class="status-message" id="otherStatusMessage"></div>
       </div>
@@ -1215,6 +1215,10 @@
         const resp = await fetch('/api/caps', { cache: 'no-store' });
         const data = await resp.json();
         const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
+        const versionBadge = document.getElementById('firmwareVersionBadge');
+        if (versionBadge && data && data.firmware && data.firmware.version) {
+          versionBadge.textContent = 'v' + data.firmware.version;
+        }
         robotType = type;
         performanceCaps = {
           freestyle: !!(data && data.performance && data.performance.freestyle),

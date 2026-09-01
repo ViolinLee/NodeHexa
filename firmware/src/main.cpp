@@ -42,6 +42,8 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #define CALIBRATESTART "CALIBRATESTART"
 #define CALIBRATESAVE "CALIBRATESAVE"
 #define CALIBRATESTART_EXISTING "CALIBRATESTART_EXISTING"
+#define NODEHEXA_STRINGIFY_INNER(value) #value
+#define NODEHEXA_STRINGIFY(value) NODEHEXA_STRINGIFY_INNER(value)
 
 // 调试模式控制
 // #define DEBUG_ADC_MONITOR  // 注释此行可关闭电池电压ADC调试输出
@@ -484,13 +486,18 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 
 /* UI 能力探测：返回机型、电源与表演能力 */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<640> doc;
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = board::kRobotType;
   robot["legCount"] = board::kLegCount;
   robot["hardwareFamily"] = board::kHardwareFamily;
   robot["hardwareRevision"] = board::kHardwareRevision;
   robot["hardwareProfile"] = board::kHardwareProfile;
+  JsonObject firmware = doc.createNestedObject("firmware");
+  firmware["version"] = NODEHEXA_STRINGIFY(FIRMWARE_VERSION);
+  JsonObject protocol = doc.createNestedObject("protocol");
+  protocol["uartCurrent"] = 1;
+  protocol["uartLegacy"] = true;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
   power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
