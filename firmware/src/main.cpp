@@ -241,6 +241,9 @@ void setup() {
   server.on("/single_leg_panel.js", HTTP_GET, [](AsyncWebServerRequest *request) {
     sendFileFromSpiffs(request, "/single_leg_panel.js", "application/javascript; charset=utf-8");
   });
+  server.on("/camera_ui.js", HTTP_GET, [](AsyncWebServerRequest *request) {
+    sendFileFromSpiffs(request, "/camera_ui.js", "application/javascript; charset=utf-8");
+  });
   server.on("/calibration", HTTP_GET, handleCalibrationPage);
   server.on("/calibration", HTTP_POST, 
     [](AsyncWebServerRequest *request)

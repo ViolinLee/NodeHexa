@@ -691,6 +691,7 @@
   
   <script src="/power_ui.js"></script>
   <script src="/single_leg_panel.js"></script>
+  <script src="/camera_ui.js"></script>
   <script>
     var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd"; 
     let websocketCarInput;
@@ -1255,6 +1256,9 @@
         if (window.SingleLegPanel) {
           window.SingleLegPanel.applyCaps(data);
         }
+        if (window.CameraUi) {
+          window.CameraUi.applyCaps(data);
+        }
         renderGaitExperimentalToggle();
         renderGaitRadios();
         // 进入页面时：若本地保存过步态偏好，则同步一次，避免 UI/机器人状态不一致。
@@ -1540,6 +1544,15 @@
           requestExclusiveControl: () => sendWsPayload({stop: true})
         });
         window.SingleLegPanel.updateLanguage(currentLang);
+      }
+      if (window.CameraUi) {
+        window.CameraUi.init({
+          sendMovement: sendCommand,
+          sendSpeed,
+          stop: sendStopCommand,
+          guardLowBattery,
+          getLang: () => currentLang
+        });
       }
       initRobotInputWebSocket();
       initSpeedControl();
