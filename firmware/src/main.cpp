@@ -42,6 +42,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "external_device.h"
 #include "camera_link.h"
 #include "ultrasonic_sensor.h"
+#include "power_manager.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -78,21 +79,10 @@ static portMUX_TYPE uartSequenceMux = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t uartNextSequence = 1;
 
 // 电池监测相关变量
-static const float LOW_VOLTAGE_WARNING_THRESHOLD = 7.2f; // UI/警告阈值(V)
-static const float LOW_VOLTAGE_LATCH_THRESHOLD_STANDBY = 7.2f; // 待机/校准锁存阈值(V)
-static const float LOW_VOLTAGE_LATCH_THRESHOLD_MOVING = 7.0f; // 运动锁存阈值(V)
-static const float BATTERY_VOLTAGE_GAIN = 1.0122f; // 采样比例校准
-static const uint8_t LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES = 2; // 连续低压次数阈值
 static const unsigned long LOW_BATTERY_SERIAL_REMINDER_INTERVAL_MS = 10000; // 串口提醒重发间隔
-// 低电量锁存：一旦置 true，只能通过重启恢复（避免 ADC 电压波动导致忽高忽低）
-static bool lowBatteryLatched = false;
-static power::LowBatteryPolicy lowBatteryLatchedPolicy = power::LowBatteryPolicy::ReleasePwm;
-static bool lowBatteryHandled = false; // 是否已执行过“强制待机/清队列/通知”动作
-static uint16_t latestBatteryVoltageMv = 0;
 static constexpr const char* kLowBatteryUiMessage = "电量低，请关闭电源后进行充电！";
 static constexpr const char* kLowBatteryProtectCode = "LOW_BATTERY_PROTECT";
 static unsigned long lastLowBatterySerialNotifyMs = 0;
-SemaphoreHandle_t voltageMutex;
 
 // 实例
 AsyncWebServer server(80);
@@ -196,7 +186,6 @@ void setup() {
   // 初始化电池监测相关硬件
   pinMode(BAT_ADC, INPUT);
   pinMode(BAT_LED, OUTPUT);
-  voltageMutex = xSemaphoreCreateMutex();
   flagMutex = xSemaphoreCreateMutex();
   uartTxMutex = xSemaphoreCreateMutex();
   uartFrameQueue = xQueueCreate(8, sizeof(uart_protocol::Frame));
@@ -598,7 +587,7 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   const uint16_t voltageMv = getLatestBatteryVoltageMv();
   power["voltageMv"] = voltageMv;
   power["percentEstimate"] = estimateBatteryPercent(voltageMv);
-  power["lowBatteryThresholdMv"] = (uint16_t)(LOW_VOLTAGE_WARNING_THRESHOLD * 1000.0f + 0.5f);
+  power["lowBatteryThresholdMv"] = power_manager::kWarningThresholdMv;
 
   JsonObject performanceCaps = doc.createNestedObject("performance");
   performanceCaps["freestyle"] = performance::isSupported(performance::Kind::Freestyle);
@@ -1133,7 +1122,6 @@ void BatteryMonitorTask(void *pvParameters) {
   uint8_t readIndex = 0;
   uint32_t adcSum = 0;
   uint8_t actualSampleCount = 0;  // 实际采集的样本数量
-  uint8_t consecutiveLowCount = 0;
 
   while(1) {
     // 采集ADC值并做移动平均滤波
@@ -1153,45 +1141,17 @@ void BatteryMonitorTask(void *pvParameters) {
     uint16_t adcAverage = adcSum / actualSampleCount;
     const uint16_t rawAdc = adcReadings[actualSampleCount < SAMPLE_SIZE ? actualSampleCount - 1 : readIndex == 0 ? SAMPLE_SIZE - 1 : readIndex - 1];
 
-    // 计算实际电压值 (V)
-    float voltage = (float)adcAverage * 3.3f / 4095.0f * (100.0f + 47.0f) / 47.0f;
-    voltage *= BATTERY_VOLTAGE_GAIN;
-
-    const uint16_t voltageMv = (uint16_t)(voltage * 1000.0f + 0.5f);
+    const uint16_t voltageMv = power_manager::voltageMvFromAdcAverage(adcAverage);
+    const float voltage = voltageMv / 1000.0f;
     const bool useMovingThreshold = shouldUseMovingLowBatteryThreshold();
-    const float latchThreshold = useMovingThreshold ? LOW_VOLTAGE_LATCH_THRESHOLD_MOVING : LOW_VOLTAGE_LATCH_THRESHOLD_STANDBY;
-    const uint16_t latchThresholdMv = (uint16_t)(latchThreshold * 1000.0f + 0.5f);
-    const bool isLow = (voltageMv <= latchThresholdMv);
+    const power_manager::SampleResult sample = power_manager::observeVoltage(
+      voltageMv, useMovingThreshold, devsettings::getLowBatteryPolicy());
 
-    bool newlyLatched = false;
-    xSemaphoreTake(voltageMutex, portMAX_DELAY);
-    latestBatteryVoltageMv = voltageMv;
-
-    if (isLow) {
-      if (consecutiveLowCount < LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES) {
-        consecutiveLowCount++;
-      }
-    } else {
-      consecutiveLowCount = 0;
-    }
-
-    // 低电量锁存：连续低压达到阈值后锁存，直到重启恢复
-    if (consecutiveLowCount >= LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES && !lowBatteryLatched) {
-      lowBatteryLatched = true;
-      lowBatteryLatchedPolicy = devsettings::getLowBatteryPolicy();
-      lowBatteryHandled = false; // 允许主循环执行一次强制待机/通知
-      newlyLatched = true;
-
-      #ifdef DEBUG_ADC_MONITOR
-      Serial.println("WARNING: Low voltage detected! (latched)");
-      #endif
-    }
-    const bool latchedNow = lowBatteryLatched;
-    const bool handledNow = lowBatteryHandled;
-    xSemaphoreGive(voltageMutex);
-
-    if (newlyLatched) {
+    if (sample.newlyLatched) {
       buzzer::setMandatoryLowBatteryAlarm(true);
+#ifdef DEBUG_ADC_MONITOR
+      Serial.println("WARNING: Low voltage detected! (latched)");
+#endif
     }
 
     #ifdef DEBUG_ADC_MONITOR
@@ -1201,14 +1161,14 @@ void BatteryMonitorTask(void *pvParameters) {
                   actualSampleCount,
                   voltage,
                   voltageMv,
-                  LOW_VOLTAGE_WARNING_THRESHOLD,
-                  latchThreshold,
+                  power_manager::kWarningThresholdMv / 1000.0f,
+                  sample.thresholdMv / 1000.0f,
                   useMovingThreshold ? "moving" : "standby",
-                  isLow ? "yes" : "no",
-                  consecutiveLowCount,
-                  LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES,
-                  latchedNow ? "yes" : "no",
-                  handledNow ? "yes" : "no");
+                  sample.belowThreshold ? "yes" : "no",
+                  sample.state.consecutiveLowSamples,
+                  power_manager::kConsecutiveSamplesToLatch,
+                  sample.state.lowBatteryLatched ? "yes" : "no",
+                  sample.state.latchHandled ? "yes" : "no");
     #endif
 
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1220,10 +1180,7 @@ void LEDControllerTask(void *pvParameters) {
   bool lastState = false;
 
   while(1) {
-    // 读取电压标志（使用"共享变量+互斥锁"这种FreeRTOS中常见的线程安全通信方式）
-    xSemaphoreTake(voltageMutex, portMAX_DELAY);
-    bool currentState = lowBatteryLatched;
-    xSemaphoreGive(voltageMutex);
+    const bool currentState = power_manager::snapshot().lowBatteryLatched;
 
     if(currentState) {
       // 低电压时闪烁
@@ -1263,15 +1220,7 @@ void clearMovementFlag() {
 }
 
 static bool isLowBatteryLatched() {
-  if (!voltageMutex) {
-    return lowBatteryLatched;
-  }
-  bool value = lowBatteryLatched;
-  if (xSemaphoreTake(voltageMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-    value = lowBatteryLatched;
-    xSemaphoreGive(voltageMutex);
-  }
-  return value;
+  return power_manager::snapshot().lowBatteryLatched;
 }
 
 static bool isMotionBlocked() {
@@ -1280,22 +1229,15 @@ static bool isMotionBlocked() {
 }
 
 static power::LowBatteryPolicy getEffectiveLowBatteryPolicy() {
-  if (!isLowBatteryLatched()) {
+  const power_manager::Snapshot state = power_manager::snapshot();
+  if (!state.lowBatteryLatched) {
     return devsettings::getLowBatteryPolicy();
   }
-  return lowBatteryLatchedPolicy;
+  return state.latchedPolicy;
 }
 
 static uint16_t getLatestBatteryVoltageMv() {
-  if (!voltageMutex) {
-    return latestBatteryVoltageMv;
-  }
-  uint16_t value = latestBatteryVoltageMv;
-  if (xSemaphoreTake(voltageMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-    value = latestBatteryVoltageMv;
-    xSemaphoreGive(voltageMutex);
-  }
-  return value;
+  return power_manager::snapshot().voltageMv;
 }
 
 static bool shouldUseMovingLowBatteryThreshold() {
@@ -1383,21 +1325,7 @@ static void maybeRepeatLowBatteryEventToSerial() {
 }
 
 static void handleLowBatteryLatchedOnce() {
-  bool doHandle = false;
-  if (voltageMutex && xSemaphoreTake(voltageMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-    if (lowBatteryLatched && !lowBatteryHandled) {
-      lowBatteryHandled = true;
-      doHandle = true;
-    }
-    xSemaphoreGive(voltageMutex);
-  } else {
-    if (lowBatteryLatched && !lowBatteryHandled) {
-      lowBatteryHandled = true;
-      doHandle = true;
-    }
-  }
-
-  if (!doHandle) {
+  if (!power_manager::claimLatchHandling()) {
     return;
   }
 
