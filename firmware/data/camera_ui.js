@@ -29,7 +29,7 @@
       .camera-pad{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(3,52px);gap:8px;align-items:center;justify-content:center}
       .camera-pad button{width:64px;height:52px;font-size:21px}
       .camera-pad .forward{grid-column:2;grid-row:1}.camera-pad .left{grid-column:1;grid-row:2}.camera-pad .stop{grid-column:2;grid-row:2;background:#dc2626}.camera-pad .right{grid-column:3;grid-row:2}.camera-pad .back{grid-column:2;grid-row:3}
-      .camera-speed{display:flex;gap:8px}.camera-speed button{min-width:64px;background:#374151}.camera-speed button.active{background:#7c3aed}
+      .camera-speed{display:flex;gap:8px}.camera-speed button{min-width:64px;min-height:44px;border:0;border-radius:12px;color:#fff;background:#374151;font-size:16px;font-weight:700;touch-action:manipulation}.camera-speed button.active{background:#7c3aed}
       @media (orientation:landscape) and (max-height:500px){body.camera-mode #cameraVideoMode{flex-direction:row}.camera-view{flex:0 0 58%;height:100%}.camera-controls{height:100%;padding:6px}.camera-pad{grid-template-columns:repeat(3,56px);grid-template-rows:repeat(3,46px);gap:5px}.camera-pad button{width:56px;height:46px;min-height:44px}.camera-toolbar button{min-height:44px}}
     `;
     document.head.appendChild(style);
