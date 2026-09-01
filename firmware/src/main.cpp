@@ -39,6 +39,8 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "servo_output.h"
 #include "buzzer.h"
 #include "uart_protocol.h"
+#include "external_device.h"
+#include "camera_link.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -71,7 +73,8 @@ static TaskHandle_t uartDispatchTaskHandle = nullptr;
 static volatile uint32_t uartQueueDrops = 0;
 static bool serialDispatchV2 = false;
 static uint16_t serialDispatchSequence = 0;
-static bool v2PeerSeen = false;
+static portMUX_TYPE uartSequenceMux = portMUX_INITIALIZER_UNLOCKED;
+static uint16_t uartNextSequence = 1;
 
 // 电池监测相关变量
 static const float LOW_VOLTAGE_WARNING_THRESHOLD = 7.2f; // UI/警告阈值(V)
@@ -122,6 +125,7 @@ void handleCapsGet(AsyncWebServerRequest *request);
 // 通用设置接口（用于承载未来更多配置项）
 void handleSettingsGet(AsyncWebServerRequest *request);
 void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+void handleCameraProfilePostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
 static String* appendRequestBodyChunk(AsyncWebServerRequest *request, const uint8_t *data, size_t len, size_t index, size_t total);
 static void clearRequestBodyChunk(AsyncWebServerRequest *request);
 
@@ -133,6 +137,14 @@ void parseSerialMovementCommand(const String& jsonString);
 void SerialCommandTask(void *pvParameters);
 void UartDispatchTask(void *pvParameters);
 void sendSerialResponse(const String& message);
+static bool sendV2Message(uart_protocol::MessageType type,
+                          uint8_t flags,
+                          uint16_t sequence,
+                          const String& message);
+static uint16_t nextUartSequence();
+static bool sendCameraProvision(const String& ssid, const String& password);
+static bool sendCameraProfileRequest(const char* profile);
+static void handleV2Event(const uart_protocol::Frame& frame);
 void clearMovementFlag();
 static const char* motionButtonModeToString(devsettings::MotionButtonMode mode);
 static bool parseMotionButtonModeField(JsonVariantConst value, devsettings::MotionButtonMode& mode);
@@ -193,6 +205,8 @@ void setup() {
   if (!buzzer::begin()) {
     Serial.println("[Buzzer] Initialization failed; continuing without audio.");
   }
+  external_device::begin();
+  camera_link::begin();
 
   // 初始化I2C
   Wire.setPins(board::kI2cSdaPin, board::kI2cSclPin);
@@ -254,6 +268,10 @@ void setup() {
     [](AsyncWebServerRequest *request) {},
     [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {},
     handleSettingsPostBody);
+  server.on("/api/camera/profile", HTTP_POST,
+    [](AsyncWebServerRequest *request) {},
+    [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {},
+    handleCameraProfilePostBody);
 
   wsRoverCmd.onEvent(onRobotCmdWebSocketEvent);
   server.addHandler(&wsRoverCmd);
@@ -310,6 +328,12 @@ void loop() {
   if (isLowBatteryLatched()) {
     handleLowBatteryLatchedOnce();
     maybeRepeatLowBatteryEventToSerial();
+  }
+
+  external_device::poll(millis());
+  const external_device::Snapshot external = external_device::snapshot();
+  if (external.type == external_device::Type::Camera && !external.online) {
+    camera_link::setOffline();
   }
 
   // 锁存事实始终保留；仅阻断策略强制回到运动模式。
@@ -503,7 +527,7 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 
 /* UI 能力探测：返回机型、电源与表演能力 */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<1024> doc;
+  StaticJsonDocument<2048> doc;
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = board::kRobotType;
   robot["legCount"] = board::kLegCount;
@@ -523,6 +547,33 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   uartDiagnostics["timeouts"] = uartStats.timeouts;
   uartDiagnostics["legacyFrames"] = uartStats.legacyFrames;
   uartDiagnostics["queueDrops"] = uartQueueDrops;
+  JsonObject peripherals = doc.createNestedObject("peripherals");
+  JsonObject buzzerCaps = peripherals.createNestedObject("buzzer");
+  buzzerCaps["driverAvailable"] = true;
+  const external_device::Snapshot external = external_device::snapshot();
+  JsonObject externalCaps = peripherals.createNestedObject("externalDevice");
+  externalCaps["type"] = external_device::typeToString(external.type);
+  externalCaps["online"] = external.online;
+  externalCaps["protocolVersion"] = external.protocolVersion;
+  if (external.firmwareVersion[0]) externalCaps["firmware"] = external.firmwareVersion;
+  const camera_link::Snapshot camera = camera_link::snapshot();
+  JsonObject cameraCaps = peripherals.createNestedObject("camera");
+  const bool cameraAvailable = camera.available && external.online &&
+                               external.type == external_device::Type::Camera;
+  cameraCaps["available"] = cameraAvailable;
+  if (cameraAvailable) {
+    char streamUrl[64];
+    snprintf(streamUrl, sizeof(streamUrl), "http://%s:%u/stream", camera.ip, camera.streamPort);
+    cameraCaps["streamUrl"] = streamUrl;
+  }
+  JsonArray profiles = cameraCaps.createNestedArray("profiles");
+  profiles.add("qvga");
+  profiles.add("vga");
+  cameraCaps["activeProfile"] = camera.activeProfile;
+  cameraCaps["profilePending"] = camera.profilePending;
+  cameraCaps["framesOk"] = camera.framesOk;
+  cameraCaps["captureFailures"] = camera.captureFailures;
+  cameraCaps["encodeFailures"] = camera.encodeFailures;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
   power["lowBatteryPolicy"] = power::policyToString(getEffectiveLowBatteryPolicy());
@@ -679,6 +730,9 @@ void handleApConfigPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   bool success = apconfig::setNewConfig(ssid, password);
   
   if (success) {
+    // Best-effort eventual consistency: the camera stores these credentials
+    // before the main board reboots. A missed update is retried on next HELLO.
+    sendCameraProvision(ssid, password);
     StaticJsonDocument<256> response;
     response["status"] = "success";
     response["message"] = "AP configuration updated, device will reboot in 3 seconds";
@@ -697,6 +751,34 @@ void handleApConfigPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   } else {
     request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to set configuration\"}");
   }
+}
+
+void handleCameraProfilePostBody(AsyncWebServerRequest *request,
+                                 uint8_t *data,
+                                 size_t len,
+                                 size_t index,
+                                 size_t total) {
+  String *body = appendRequestBodyChunk(request, data, len, index, total);
+  if (!body) return;
+  StaticJsonDocument<128> doc;
+  const DeserializationError error = deserializeJson(doc, *body);
+  clearRequestBodyChunk(request);
+  const char* profile = doc["profile"] | "";
+  if (error || !camera_link::isValidProfile(profile)) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"profile must be qvga or vga\"}");
+    return;
+  }
+  const external_device::Snapshot external = external_device::snapshot();
+  if (!external.online || external.type != external_device::Type::Camera) {
+    request->send(409, "application/json", "{\"status\":\"error\",\"message\":\"camera offline\"}");
+    return;
+  }
+  if (!sendCameraProfileRequest(profile)) {
+    request->send(503, "application/json", "{\"status\":\"error\",\"message\":\"UART unavailable\"}");
+    return;
+  }
+  camera_link::setProfilePending(true);
+  request->send(202, "application/json", "{\"status\":\"accepted_pending\"}");
 }
 
 void handleApConfigConfirm(AsyncWebServerRequest *request) {
@@ -1891,12 +1973,22 @@ void UartDispatchTask(void *pvParameters) {
     serialDispatchV2 = frame.format == uart_protocol::Format::V2;
     serialDispatchSequence = frame.sequence;
     if (serialDispatchV2) {
-      v2PeerSeen = true;
+      external_device::observeV2Frame(millis());
+    } else {
+      external_device::observeLegacyFrame(millis());
     }
 
     if (frame.format == uart_protocol::Format::V2 &&
         frame.messageType == uart_protocol::MessageType::Hello) {
       StaticJsonDocument<256> hello;
+      StaticJsonDocument<384> peerHello;
+      const DeserializationError helloError = deserializeJson(peerHello, frame.payload, frame.payloadLength);
+      const char* peerDevice = helloError ? "generic_host" : (peerHello["device"] | "generic_host");
+      external_device::observeHello(peerDevice,
+                                    helloError ? "" : (peerHello["deviceId"] | ""),
+                                    helloError ? "" : (peerHello["firmware"] | ""),
+                                    2,
+                                    millis());
       hello["device"] = "nodehexa";
       hello["robotType"] = board::kRobotType;
       hello["firmware"] = NODEHEXA_STRINGIFY(FIRMWARE_VERSION);
@@ -1908,11 +2000,17 @@ void UartDispatchTask(void *pvParameters) {
       String response;
       serializeJson(hello, response);
       sendSerialResponse(response);
+      if (strcmp(peerDevice, "camera") == 0) {
+        const apconfig::APConfig cfg = apconfig::getConfig();
+        sendCameraProvision(cfg.ssid, cfg.password);
+      }
     } else if (frame.format == uart_protocol::Format::Legacy ||
                frame.messageType == uart_protocol::MessageType::Request) {
       parseSerialMovementCommand(reinterpret_cast<const char*>(frame.payload));
     } else if (frame.messageType == uart_protocol::MessageType::Heartbeat) {
       sendSerialResponse("{\"status\":\"success\"}");
+    } else if (frame.messageType == uart_protocol::MessageType::Event) {
+      handleV2Event(frame);
     }
     serialDispatchV2 = false;
     serialDispatchSequence = 0;
@@ -1924,39 +2022,88 @@ void UartDispatchTask(void *pvParameters) {
 void sendSerialResponse(const String& message) {
   const bool inDispatchTask = uartDispatchTaskHandle &&
                               xTaskGetCurrentTaskHandle() == uartDispatchTaskHandle;
-  const bool useV2 = (inDispatchTask && serialDispatchV2) || (!inDispatchTask && v2PeerSeen);
-  if (uartTxMutex && xSemaphoreTake(uartTxMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-    Serial.println("[UART] TX mutex timeout; response dropped.");
-    return;
-  }
+  const external_device::Snapshot external = external_device::snapshot();
+  const bool useV2 = (inDispatchTask && serialDispatchV2) ||
+                     (!inDispatchTask && external.online && external.protocolVersion == 2);
 
   if (useV2) {
-    uint8_t encoded[uart_protocol::kMaxPayloadLength + 11];
-    const uint16_t payloadLength = static_cast<uint16_t>(
-      message.length() > uart_protocol::kMaxPayloadLength
-        ? uart_protocol::kMaxPayloadLength
-        : message.length()
-    );
     const uart_protocol::MessageType type = inDispatchTask
       ? uart_protocol::MessageType::Response
       : uart_protocol::MessageType::Event;
-    const size_t encodedLength = uart_protocol::encodeV2(
-      type,
-      inDispatchTask ? 0x01 : 0x00,
-      inDispatchTask ? serialDispatchSequence : 0,
-      reinterpret_cast<const uint8_t*>(message.c_str()),
-      payloadLength,
-      encoded,
-      sizeof(encoded)
-    );
-    if (encodedLength > 0) {
-      Serial2.write(encoded, encodedLength);
-    }
+    sendV2Message(type, inDispatchTask ? 0x01 : 0x00,
+                  inDispatchTask ? serialDispatchSequence : 0, message);
   } else {
+    if (uartTxMutex && xSemaphoreTake(uartTxMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+      Serial.println("[UART] TX mutex timeout; response dropped.");
+      return;
+    }
     Serial2.print('$');
     Serial2.println(message);
+    if (uartTxMutex) xSemaphoreGive(uartTxMutex);
   }
-  if (uartTxMutex) {
-    xSemaphoreGive(uartTxMutex);
-  }
+}
+
+static bool sendV2Message(uart_protocol::MessageType type,
+                          uint8_t flags,
+                          uint16_t sequence,
+                          const String& message) {
+  if (message.length() > uart_protocol::kMaxPayloadLength) return false;
+  if (uartTxMutex && xSemaphoreTake(uartTxMutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+  uint8_t encoded[uart_protocol::kMaxPayloadLength + 11];
+  const size_t encodedLength = uart_protocol::encodeV2(
+    type, flags, sequence, reinterpret_cast<const uint8_t*>(message.c_str()),
+    static_cast<uint16_t>(message.length()), encoded, sizeof(encoded));
+  if (encodedLength > 0) Serial2.write(encoded, encodedLength);
+  if (uartTxMutex) xSemaphoreGive(uartTxMutex);
+  return encodedLength > 0;
+}
+
+static uint16_t nextUartSequence() {
+  portENTER_CRITICAL(&uartSequenceMux);
+  uint16_t sequence = uartNextSequence++;
+  if (uartNextSequence == 0) uartNextSequence = 1;
+  portEXIT_CRITICAL(&uartSequenceMux);
+  return sequence;
+}
+
+static bool sendCameraProvision(const String& ssid, const String& password) {
+  const external_device::Snapshot external = external_device::snapshot();
+  if (!external.online || external.type != external_device::Type::Camera ||
+      external.protocolVersion != 2) return false;
+  StaticJsonDocument<256> doc;
+  JsonObject provision = doc.createNestedObject("cameraProvision");
+  provision["ssid"] = ssid;
+  provision["password"] = password;
+  provision["streamPort"] = 81;
+  String payload;
+  serializeJson(doc, payload);
+  return sendV2Message(uart_protocol::MessageType::Request, 0x02,
+                       nextUartSequence(), payload);
+}
+
+static bool sendCameraProfileRequest(const char* profile) {
+  StaticJsonDocument<128> doc;
+  JsonObject camera = doc.createNestedObject("camera");
+  camera["op"] = "setProfile";
+  camera["profile"] = profile;
+  String payload;
+  serializeJson(doc, payload);
+  return sendV2Message(uart_protocol::MessageType::Request, 0x02,
+                       nextUartSequence(), payload);
+}
+
+static void handleV2Event(const uart_protocol::Frame& frame) {
+  StaticJsonDocument<512> doc;
+  if (deserializeJson(doc, frame.payload, frame.payloadLength)) return;
+  const char* event = doc["event"] | "";
+  if (strcmp(event, "cameraStatus") != 0) return;
+  camera_link::updateStatus(doc["online"] | false,
+                            doc["ip"] | "",
+                            doc["streamPort"] | 81,
+                            doc["framesize"] | "qvga",
+                            doc["sensor"] | "",
+                            doc["framesOk"] | 0,
+                            doc["captureFailures"] | 0,
+                            doc["encodeFailures"] | 0,
+                            millis());
 }
