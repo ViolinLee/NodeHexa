@@ -37,6 +37,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "single_leg_controller.h"
 #include "board_config.h"
 #include "servo_output.h"
+#include "buzzer.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -177,6 +178,10 @@ void setup() {
   voltageMutex = xSemaphoreCreateMutex();
   flagMutex = xSemaphoreCreateMutex();
 
+  if (!buzzer::begin()) {
+    Serial.println("[Buzzer] Initialization failed; continuing without audio.");
+  }
+
   // 初始化I2C
   Wire.setPins(board::kI2cSdaPin, board::kI2cSclPin);
 
@@ -285,6 +290,8 @@ void setup() {
   );
 
   printWelcomeMessage();
+
+  buzzer::play(buzzer::Cue::Startup);
 
   // 测试UART2连接
   testUART2Connection();
@@ -490,7 +497,7 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 
 /* UI 能力探测：返回机型、电源与表演能力 */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<640> doc;
+  StaticJsonDocument<768> doc;
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = board::kRobotType;
   robot["legCount"] = board::kLegCount;
@@ -508,6 +515,7 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   power["motionBlocked"] = isMotionBlocked();
   const servo_output::OutputState outputState = servo_output::state();
   power["servoPwmReleased"] = outputState.released;
+  power["alarmActive"] = buzzer::alarmActive();
   const uint16_t voltageMv = getLatestBatteryVoltageMv();
   power["voltageMv"] = voltageMv;
   power["percentEstimate"] = estimateBatteryPercent(voltageMv);
@@ -1018,6 +1026,7 @@ void BatteryMonitorTask(void *pvParameters) {
     const uint16_t latchThresholdMv = (uint16_t)(latchThreshold * 1000.0f + 0.5f);
     const bool isLow = (voltageMv <= latchThresholdMv);
 
+    bool newlyLatched = false;
     xSemaphoreTake(voltageMutex, portMAX_DELAY);
     latestBatteryVoltageMv = voltageMv;
 
@@ -1033,6 +1042,7 @@ void BatteryMonitorTask(void *pvParameters) {
     if (consecutiveLowCount >= LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES && !lowBatteryLatched) {
       lowBatteryLatched = true;
       lowBatteryHandled = false; // 允许主循环执行一次强制待机/通知
+      newlyLatched = true;
 
       #ifdef DEBUG_ADC_MONITOR
       Serial.println("WARNING: Low voltage detected! (latched)");
@@ -1041,6 +1051,10 @@ void BatteryMonitorTask(void *pvParameters) {
     const bool latchedNow = lowBatteryLatched;
     const bool handledNow = lowBatteryHandled;
     xSemaphoreGive(voltageMutex);
+
+    if (newlyLatched) {
+      buzzer::setMandatoryLowBatteryAlarm(true);
+    }
 
     #ifdef DEBUG_ADC_MONITOR
     Serial.printf("ADC Debug - Raw: %u, Avg: %u, Samples: %u, Voltage: %.2fV (%umV), Warning: %.2fV, Latch: %.2fV [%s], LowNow: %s, LowCount: %u/%u, Latched: %s, Handled: %s\n",
@@ -1196,12 +1210,13 @@ static void sendLowBatteryErrorToSerial() {
 }
 
 static void sendLowBatteryEventToSerial() {
-  StaticJsonDocument<192> doc;
+  StaticJsonDocument<320> doc;
   doc["event"] = "lowBattery";
   doc["code"] = kLowBatteryProtectCode;
   doc["policy"] = power::policyToString(devsettings::getLowBatteryPolicy());
   doc["motionBlocked"] = isMotionBlocked();
   doc["servoPwmReleased"] = servo_output::state().released;
+  doc["alarmActive"] = buzzer::alarmActive();
   doc["voltageMv"] = getLatestBatteryVoltageMv();
   doc["message"] = kLowBatteryUiMessage;
 
@@ -1252,12 +1267,13 @@ static void handleLowBatteryLatchedOnce() {
     Serial.printf("[Power] Servo PWM release requested: %s.\n", released ? "ok" : "failed");
   }
 
-  StaticJsonDocument<192> doc;
+  StaticJsonDocument<320> doc;
   doc["event"] = "lowBattery";
   doc["code"] = kLowBatteryProtectCode;
   doc["policy"] = power::policyToString(devsettings::getLowBatteryPolicy());
   doc["motionBlocked"] = isMotionBlocked();
   doc["servoPwmReleased"] = servo_output::state().released;
+  doc["alarmActive"] = buzzer::alarmActive();
   doc["voltageMv"] = getLatestBatteryVoltageMv();
   doc["message"] = kLowBatteryUiMessage;
 
