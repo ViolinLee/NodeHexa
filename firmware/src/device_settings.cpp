@@ -12,11 +12,12 @@ Preferences prefs;
 
 // NVS 命名空间与键名
 static constexpr const char* kNs = "settings";
+static constexpr const char* kKeyLowBatteryPolicy = "lb_policy";
 static constexpr const char* kKeyLowBatteryProtect = "lb_protect";
 static constexpr const char* kKeyMotionButtonMode = "motion_btn";
 
 // 缓存值（避免频繁 NVS IO）
-bool cachedLowBatteryProtectionEnabled = true;
+power::LowBatteryPolicy cachedLowBatteryPolicy = power::LowBatteryPolicy::ReleasePwm;
 MotionButtonMode cachedMotionButtonMode = MotionButtonMode::Continuous;
 
 void loadFromNvs() {
@@ -24,7 +25,23 @@ void loadFromNvs() {
   if (!prefs.begin(kNs, true)) {
     prefs.begin(kNs, false);
   }
-  cachedLowBatteryProtectionEnabled = prefs.getBool(kKeyLowBatteryProtect, true);
+  const bool hasPolicy = prefs.isKey(kKeyLowBatteryPolicy);
+  const bool hasLegacyProtection = prefs.isKey(kKeyLowBatteryProtect);
+  if (hasPolicy) {
+    const uint8_t rawPolicy = prefs.getUChar(
+      kKeyLowBatteryPolicy,
+      static_cast<uint8_t>(power::LowBatteryPolicy::ReleasePwm)
+    );
+    cachedLowBatteryPolicy = power::policyFromStoredValue(
+      rawPolicy,
+      power::LowBatteryPolicy::ReleasePwm
+    );
+  } else {
+    const bool legacyProtection = hasLegacyProtection
+      ? prefs.getBool(kKeyLowBatteryProtect, true)
+      : true;
+    cachedLowBatteryPolicy = power::policyFromLegacyProtection(legacyProtection);
+  }
   uint8_t rawMotionButtonMode = prefs.getUChar(
     kKeyMotionButtonMode,
     static_cast<uint8_t>(MotionButtonMode::Continuous)
@@ -33,15 +50,30 @@ void loadFromNvs() {
     ? MotionButtonMode::SingleCycle
     : MotionButtonMode::Continuous;
   prefs.end();
+
+  if (!hasPolicy) {
+    if (prefs.begin(kNs, false)) {
+      const size_t written = prefs.putUChar(
+        kKeyLowBatteryPolicy,
+        static_cast<uint8_t>(cachedLowBatteryPolicy)
+      );
+      prefs.end();
+      if (written != sizeof(uint8_t)) {
+        cachedLowBatteryPolicy = power::LowBatteryPolicy::ReleasePwm;
+      }
+    } else {
+      cachedLowBatteryPolicy = power::LowBatteryPolicy::ReleasePwm;
+    }
+  }
 }
 
-bool writeLowBatteryProtectionToNvs(bool enabled) {
+bool writeLowBatteryPolicyToNvs(power::LowBatteryPolicy policy) {
   if (!prefs.begin(kNs, false)) {
     return false;
   }
-  prefs.putBool(kKeyLowBatteryProtect, enabled);
+  const size_t written = prefs.putUChar(kKeyLowBatteryPolicy, static_cast<uint8_t>(policy));
   prefs.end();
-  return true;
+  return written == sizeof(uint8_t);
 }
 
 bool writeMotionButtonModeToNvs(MotionButtonMode mode) {
@@ -59,13 +91,13 @@ void init() {
   loadFromNvs();
 }
 
-bool isLowBatteryProtectionEnabled() {
-  return cachedLowBatteryProtectionEnabled;
+power::LowBatteryPolicy getLowBatteryPolicy() {
+  return cachedLowBatteryPolicy;
 }
 
 PowerSettings getPowerSettings() {
   PowerSettings s;
-  s.lowBatteryProtectionEnabled = cachedLowBatteryProtectionEnabled;
+  s.lowBatteryPolicy = cachedLowBatteryPolicy;
   return s;
 }
 
@@ -79,12 +111,13 @@ MotionSettings getMotionSettings() {
   return s;
 }
 
-bool setLowBatteryProtectionEnabled(bool enabled) {
-  if (!writeLowBatteryProtectionToNvs(enabled)) {
+bool setLowBatteryPolicy(power::LowBatteryPolicy policy) {
+  if (!power::isValidPolicyValue(static_cast<uint8_t>(policy)) ||
+      !writeLowBatteryPolicyToNvs(policy)) {
     return false;
   }
-  cachedLowBatteryProtectionEnabled = enabled;
-  Serial.printf("Settings: lowBatteryProtectionEnabled=%s\n", enabled ? "true" : "false");
+  cachedLowBatteryPolicy = policy;
+  Serial.printf("Settings: lowBatteryPolicy=%s\n", power::policyToString(policy));
   return true;
 }
 
@@ -101,4 +134,3 @@ bool setMotionButtonMode(MotionButtonMode mode) {
 }
 
 }  // namespace devsettings
-

@@ -5,6 +5,8 @@
 
 #include <Arduino.h>
 
+#include "power_policy.h"
+
 namespace devsettings {
 
 enum class MotionButtonMode : uint8_t {
@@ -13,7 +15,7 @@ enum class MotionButtonMode : uint8_t {
 };
 
 struct PowerSettings {
-  bool lowBatteryProtectionEnabled = true;
+  power::LowBatteryPolicy lowBatteryPolicy = power::LowBatteryPolicy::ReleasePwm;
 };
 
 struct MotionSettings {
@@ -24,15 +26,14 @@ struct MotionSettings {
 void init();
 
 // 当前缓存值（无 IO）
-bool isLowBatteryProtectionEnabled();
+power::LowBatteryPolicy getLowBatteryPolicy();
 PowerSettings getPowerSettings();
 MotionButtonMode getMotionButtonMode();
 MotionSettings getMotionSettings();
 
 // 写入 NVS 并更新缓存
 // 返回 true 表示写入成功
-bool setLowBatteryProtectionEnabled(bool enabled);
+bool setLowBatteryPolicy(power::LowBatteryPolicy policy);
 bool setMotionButtonMode(MotionButtonMode mode);
 
 }  // namespace devsettings
-

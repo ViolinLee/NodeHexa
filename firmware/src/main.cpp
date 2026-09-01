@@ -131,6 +131,7 @@ static bool parseMotionButtonModeField(JsonVariantConst value, devsettings::Moti
 
 // 低电量锁存辅助
 static bool isLowBatteryLatched();
+static bool isMotionBlocked();
 static void handleLowBatteryLatchedOnce();
 static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client);
 static void sendLowBatteryErrorToSerial();
@@ -190,7 +191,8 @@ void setup() {
 
   // 读取设备设置（NVS）
   devsettings::init();
-  Serial.printf("Power: lowBatteryProtectionEnabled=%s\n", devsettings::isLowBatteryProtectionEnabled() ? "true" : "false");
+  Serial.printf("Power: lowBatteryPolicy=%s\n",
+                power::policyToString(devsettings::getLowBatteryPolicy()));
 
   // 初始化Web服务
   server.on("/", HTTP_GET, handleRoot);
@@ -291,8 +293,13 @@ void setup() {
 }
 
 void loop() {
-  // 低电量锁存后：强制回到运动模式（standby），并屏蔽所有控制
   if (isLowBatteryLatched()) {
+    handleLowBatteryLatchedOnce();
+    maybeRepeatLowBatteryEventToSerial();
+  }
+
+  // 锁存事实始终保留；仅阻断策略强制回到运动模式。
+  if (isMotionBlocked()) {
     if (_mode != 0) {
       _mode = 0;
     }
@@ -322,15 +329,11 @@ void normal_loop() {
   //   delay(1000 - REACT_DELAY);
   // }
 
-  const bool lowBattery = isLowBatteryLatched();
-  if (lowBattery) {
-    handleLowBatteryLatchedOnce();
-    maybeRepeatLowBatteryEventToSerial();
-  }
+  const bool motionBlocked = isMotionBlocked();
 
   auto t0 = millis();
 
-  if (lowBattery) {
+  if (motionBlocked) {
     if (hexapod::Robot) {
       hexapod::Robot->processMovement(hexapod::MOVEMENT_STANDBY, REACT_DELAY);
     }
@@ -414,7 +417,7 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
   String body = String((char*)data).substring(0, len);
 
   // 低电量锁存后：禁止校准动作（避免电压波动导致舵机异常）
-  if (isLowBatteryLatched()) {
+  if (isMotionBlocked()) {
     request->send(200, "application/json", String("{\"status\":\"error\",\"message\":\"") + kLowBatteryUiMessage + "\"}");
     return;
   }
@@ -500,7 +503,8 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   protocol["uartLegacy"] = true;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
-  power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
+  power["lowBatteryPolicy"] = power::policyToString(devsettings::getLowBatteryPolicy());
+  power["motionBlocked"] = isMotionBlocked();
   const uint16_t voltageMv = getLatestBatteryVoltageMv();
   power["voltageMv"] = voltageMv;
   power["percentEstimate"] = estimateBatteryPercent(voltageMv);
@@ -711,7 +715,7 @@ void handleSettingsGet(AsyncWebServerRequest *request) {
   StaticJsonDocument<256> json;
   json["status"] = "success";
   JsonObject power = json.createNestedObject("power");
-  power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
+  power["lowBatteryPolicy"] = power::policyToString(devsettings::getLowBatteryPolicy());
   JsonObject motion = json.createNestedObject("motion");
   motion["buttonMode"] = motionButtonModeToString(devsettings::getMotionButtonMode());
   String response;
@@ -741,18 +745,26 @@ void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   }
 
   bool hasPowerUpdate = false;
-  bool powerEnabled = devsettings::isLowBatteryProtectionEnabled();
+  power::LowBatteryPolicy lowBatteryPolicy = devsettings::getLowBatteryPolicy();
   if (hasPowerObject) {
     if (!doc["power"].is<JsonObjectConst>()) {
       request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: power must be an object\"}");
       return;
     }
     JsonObjectConst p = doc["power"].as<JsonObjectConst>();
-    if (!p.containsKey("lowBatteryProtectionEnabled")) {
-      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: missing power.lowBatteryProtectionEnabled\"}");
+    if (p.containsKey("lowBatteryPolicy")) {
+      if (!power::policyFromString(p["lowBatteryPolicy"].as<const char*>(), lowBatteryPolicy)) {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid power.lowBatteryPolicy\"}");
+        return;
+      }
+    } else if (p.containsKey("lowBatteryProtectionEnabled")) {
+      lowBatteryPolicy = power::policyFromLegacyProtection(
+        p["lowBatteryProtectionEnabled"].as<bool>()
+      );
+    } else {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid payload: missing power.lowBatteryPolicy\"}");
       return;
     }
-    powerEnabled = p["lowBatteryProtectionEnabled"].as<bool>();
     hasPowerUpdate = true;
   }
 
@@ -772,15 +784,9 @@ void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   }
 
   if (hasPowerUpdate) {
-    if (!devsettings::setLowBatteryProtectionEnabled(powerEnabled)) {
+    if (!devsettings::setLowBatteryPolicy(lowBatteryPolicy)) {
       request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to persist power settings\"}");
       return;
-    }
-
-    // 若重新开启保护且此前已锁存，则允许再次执行一次“强制待机/通知”
-    if (devsettings::isLowBatteryProtectionEnabled()) {
-      lowBatteryHandled = false;
-      lastLowBatterySerialNotifyMs = 0;
     }
   }
 
@@ -794,7 +800,7 @@ void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   StaticJsonDocument<256> resp;
   resp["status"] = "success";
   JsonObject power = resp.createNestedObject("power");
-  power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();
+  power["lowBatteryPolicy"] = power::policyToString(devsettings::getLowBatteryPolicy());
   JsonObject motion = resp.createNestedObject("motion");
   motion["buttonMode"] = motionButtonModeToString(devsettings::getMotionButtonMode());
   String response;
@@ -845,7 +851,7 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         }
 
         // 低电量锁存后：屏蔽所有控制指令（包括运动模式/速度/步态/序列）
-        if (isLowBatteryLatched()) {
+        if (isMotionBlocked()) {
           motion::controller().clear("[Power] low battery, command ignored");
           performance::controller().clear("[Power] low battery, command ignored");
           singleleg::controller().stop("[Power] low battery, single leg ignored");
@@ -1102,10 +1108,6 @@ void clearMovementFlag() {
 }
 
 static bool isLowBatteryLatched() {
-  const bool protectEnabled = devsettings::isLowBatteryProtectionEnabled();
-  if (!protectEnabled) {
-    return false;
-  }
   if (!voltageMutex) {
     return lowBatteryLatched;
   }
@@ -1115,6 +1117,11 @@ static bool isLowBatteryLatched() {
     xSemaphoreGive(voltageMutex);
   }
   return value;
+}
+
+static bool isMotionBlocked() {
+  return isLowBatteryLatched() &&
+         power::policyBlocksMotion(devsettings::getLowBatteryPolicy());
 }
 
 static uint16_t getLatestBatteryVoltageMv() {
@@ -1189,6 +1196,9 @@ static void sendLowBatteryEventToSerial() {
   StaticJsonDocument<192> doc;
   doc["event"] = "lowBattery";
   doc["code"] = kLowBatteryProtectCode;
+  doc["policy"] = power::policyToString(devsettings::getLowBatteryPolicy());
+  doc["motionBlocked"] = isMotionBlocked();
+  doc["voltageMv"] = getLatestBatteryVoltageMv();
   doc["message"] = kLowBatteryUiMessage;
 
   String payload;
@@ -1227,14 +1237,19 @@ static void handleLowBatteryLatchedOnce() {
     return;
   }
 
-  motion::controller().clear("[Power] low battery, force standby");
-  performance::controller().clear("[Power] low battery, clear performance");
-  singleleg::controller().stop("[Power] low battery, clear single leg");
-  clearMovementFlag();
+  if (isMotionBlocked()) {
+    motion::controller().clear("[Power] low battery, force standby");
+    performance::controller().clear("[Power] low battery, clear performance");
+    singleleg::controller().stop("[Power] low battery, clear single leg");
+    clearMovementFlag();
+  }
 
   StaticJsonDocument<192> doc;
   doc["event"] = "lowBattery";
   doc["code"] = kLowBatteryProtectCode;
+  doc["policy"] = power::policyToString(devsettings::getLowBatteryPolicy());
+  doc["motionBlocked"] = isMotionBlocked();
+  doc["voltageMv"] = getLatestBatteryVoltageMv();
   doc["message"] = kLowBatteryUiMessage;
 
   String payload;
@@ -1244,7 +1259,9 @@ static void handleLowBatteryLatchedOnce() {
   wsRoverCmd.textAll(payload);
   sendLowBatteryEventToSerial();
 
-  Serial.println("[Power] Low battery latched: force standby and block commands.");
+  Serial.printf("[Power] Low battery latched: policy=%s, motionBlocked=%s.\n",
+                power::policyToString(devsettings::getLowBatteryPolicy()),
+                isMotionBlocked() ? "true" : "false");
 }
 
 static const char* motionButtonModeToString(devsettings::MotionButtonMode mode) {
@@ -1653,7 +1670,7 @@ void parseSerialMovementCommand(const String& jsonString) {
   }
 
   // 低电量锁存后：屏蔽所有控制指令（包括运动模式/速度/步态/序列）
-  if (isLowBatteryLatched()) {
+  if (isMotionBlocked()) {
     motion::controller().clear("[Power] low battery, command ignored");
     performance::controller().clear("[Power] low battery, command ignored");
     singleleg::controller().stop("[Power] low battery, single leg ignored");
