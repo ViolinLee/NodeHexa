@@ -2021,7 +2021,7 @@ void UartDispatchTask(void *pvParameters) {
 
     if (frame.format == uart_protocol::Format::V2 &&
         frame.messageType == uart_protocol::MessageType::Hello) {
-      StaticJsonDocument<256> hello;
+      StaticJsonDocument<384> hello;
       StaticJsonDocument<384> peerHello;
       const DeserializationError helloError = deserializeJson(peerHello, frame.payload, frame.payloadLength);
       const char* peerDevice = helloError ? "generic_host" : (peerHello["device"] | "generic_host");
@@ -2034,6 +2034,8 @@ void UartDispatchTask(void *pvParameters) {
       hello["robotType"] = board::kRobotType;
       hello["firmware"] = NODEHEXA_STRINGIFY(FIRMWARE_VERSION);
       hello["protocol"] = 2;
+      JsonObject helloPower = hello.createNestedObject("power");
+      helloPower["lowBatteryLatched"] = isLowBatteryLatched();
       JsonArray capabilities = hello.createNestedArray("capabilities");
       capabilities.add("control");
       capabilities.add("power_event");
