@@ -41,6 +41,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "uart_protocol.h"
 #include "external_device.h"
 #include "camera_link.h"
+#include "ultrasonic_sensor.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -126,6 +127,7 @@ void handleCapsGet(AsyncWebServerRequest *request);
 void handleSettingsGet(AsyncWebServerRequest *request);
 void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
 void handleCameraProfilePostBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+void handleUltrasonicGet(AsyncWebServerRequest *request);
 static String* appendRequestBodyChunk(AsyncWebServerRequest *request, const uint8_t *data, size_t len, size_t index, size_t total);
 static void clearRequestBodyChunk(AsyncWebServerRequest *request);
 
@@ -207,6 +209,9 @@ void setup() {
   }
   external_device::begin();
   camera_link::begin();
+  if (!ultrasonic::begin()) {
+    Serial.println("[Ultrasonic] Driver initialization failed.");
+  }
 
   // 初始化I2C
   Wire.setPins(board::kI2cSdaPin, board::kI2cSclPin);
@@ -272,6 +277,7 @@ void setup() {
     [](AsyncWebServerRequest *request) {},
     [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {},
     handleCameraProfilePostBody);
+  server.on("/api/ultrasonic", HTTP_GET, handleUltrasonicGet);
 
   wsRoverCmd.onEvent(onRobotCmdWebSocketEvent);
   server.addHandler(&wsRoverCmd);
@@ -550,6 +556,11 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   JsonObject peripherals = doc.createNestedObject("peripherals");
   JsonObject buzzerCaps = peripherals.createNestedObject("buzzer");
   buzzerCaps["driverAvailable"] = true;
+  JsonObject ultrasonicCaps = peripherals.createNestedObject("ultrasonic");
+  const ultrasonic::Reading ultrasonicReading = ultrasonic::latest();
+  ultrasonicCaps["driverAvailable"] = true;
+  ultrasonicCaps["active"] = ultrasonicReading.pending;
+  ultrasonicCaps["online"] = ultrasonic::online();
   const external_device::Snapshot external = external_device::snapshot();
   JsonObject externalCaps = peripherals.createNestedObject("externalDevice");
   externalCaps["type"] = external_device::typeToString(external.type);
@@ -779,6 +790,33 @@ void handleCameraProfilePostBody(AsyncWebServerRequest *request,
   }
   camera_link::setProfilePending(true);
   request->send(202, "application/json", "{\"status\":\"accepted_pending\"}");
+}
+
+void handleUltrasonicGet(AsyncWebServerRequest *request) {
+  bool requested = false;
+  if (request->hasParam("fresh") && request->getParam("fresh")->value() == "1") {
+    requested = ultrasonic::requestMeasurement();
+  }
+  const ultrasonic::Reading reading = ultrasonic::latest();
+  StaticJsonDocument<384> doc;
+  doc["status"] = "success";
+  doc["valid"] = reading.valid;
+  doc["pending"] = reading.pending;
+  doc["requestAccepted"] = requested;
+  if (reading.valid) {
+    doc["distanceMm"] = reading.distanceMm;
+    doc["pulseWidthUs"] = reading.pulseWidthUs;
+  } else {
+    doc["reason"] = reading.measuredAtMs == 0 ? "not_measured" :
+                    (reading.pulseWidthUs == 0 ? "timeout" : "pulse_too_short");
+  }
+  doc["sampleCount"] = reading.sampleCount;
+  doc["timeoutCount"] = reading.timeoutCount;
+  doc["errorCount"] = reading.errorCount;
+  doc["ageMs"] = reading.ageMs;
+  String response;
+  serializeJson(doc, response);
+  request->send(200, "application/json", response);
 }
 
 void handleApConfigConfirm(AsyncWebServerRequest *request) {
