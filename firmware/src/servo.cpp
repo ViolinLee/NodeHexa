@@ -2,6 +2,7 @@
 #include "debug.h"
 
 #include "pwm.h"
+#include "servo_output.h"
 
 namespace hexapod { 
 
@@ -22,10 +23,12 @@ namespace hexapod {
             if (pwmInited)
                 return;
 
-            pwmLeft.begin();  
+            pwmLeft.begin();
             pwmLeft.setPWMFreq(kFrequency);
-            pwmRight.begin();  
+            pwmRight.begin();
             pwmRight.setPWMFreq(kFrequency);
+            servo_output::registerController(&pwmLeft);
+            servo_output::registerController(&pwmRight);
             pwmInited = true;
         }
 
@@ -106,7 +109,7 @@ namespace hexapod {
         else if(us < kServoMin)
             us = kServoMin;
 
-        pwm->setPWM(idx, 0, us/kTickUs);
+        servo_output::write(*pwm, idx, 0, us / kTickUs);
         LOG_DEBUG("setAngle(%.2f, %d)", angle, us);
     }
 

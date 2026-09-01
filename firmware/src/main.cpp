@@ -36,6 +36,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "performance_controller.h"
 #include "single_leg_controller.h"
 #include "board_config.h"
+#include "servo_output.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -505,6 +506,8 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   power["lowBatteryLatched"] = isLowBatteryLatched();
   power["lowBatteryPolicy"] = power::policyToString(devsettings::getLowBatteryPolicy());
   power["motionBlocked"] = isMotionBlocked();
+  const servo_output::OutputState outputState = servo_output::state();
+  power["servoPwmReleased"] = outputState.released;
   const uint16_t voltageMv = getLatestBatteryVoltageMv();
   power["voltageMv"] = voltageMv;
   power["percentEstimate"] = estimateBatteryPercent(voltageMv);
@@ -1198,6 +1201,7 @@ static void sendLowBatteryEventToSerial() {
   doc["code"] = kLowBatteryProtectCode;
   doc["policy"] = power::policyToString(devsettings::getLowBatteryPolicy());
   doc["motionBlocked"] = isMotionBlocked();
+  doc["servoPwmReleased"] = servo_output::state().released;
   doc["voltageMv"] = getLatestBatteryVoltageMv();
   doc["message"] = kLowBatteryUiMessage;
 
@@ -1243,12 +1247,17 @@ static void handleLowBatteryLatchedOnce() {
     singleleg::controller().stop("[Power] low battery, clear single leg");
     clearMovementFlag();
   }
+  if (power::policyReleasesPwm(devsettings::getLowBatteryPolicy())) {
+    const bool released = servo_output::releaseAll();
+    Serial.printf("[Power] Servo PWM release requested: %s.\n", released ? "ok" : "failed");
+  }
 
   StaticJsonDocument<192> doc;
   doc["event"] = "lowBattery";
   doc["code"] = kLowBatteryProtectCode;
   doc["policy"] = power::policyToString(devsettings::getLowBatteryPolicy());
   doc["motionBlocked"] = isMotionBlocked();
+  doc["servoPwmReleased"] = servo_output::state().released;
   doc["voltageMv"] = getLatestBatteryVoltageMv();
   doc["message"] = kLowBatteryUiMessage;
 
