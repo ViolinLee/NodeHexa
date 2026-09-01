@@ -102,7 +102,9 @@ void Parser::pollTimeout(uint32_t nowMs) {
 
 bool Parser::feed(uint8_t byte, uint32_t nowMs, Frame& frame) {
   recordTimeout(nowMs);
-  if (byte == '$') {
+  // Legacy '$' is only a start marker while seeking. Inside a V2 frame it is
+  // ordinary payload/header data and must never desynchronize the parser.
+  if ((state_ == State::Seek || state_ == State::SeekMagic1) && byte == '$') {
     startLegacy(nowMs);
     return false;
   }

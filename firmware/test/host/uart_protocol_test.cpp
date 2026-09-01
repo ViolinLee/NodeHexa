@@ -51,5 +51,58 @@ int main() {
   parser.feed('{', 301, frame);
   parser.pollTimeout(600);
   assert(parser.stats().timeouts == 1);
+
+  // A '$' byte is valid inside a V2 payload and must not switch to legacy mode.
+  const char dollarPayload[] = "{\"ssid\":\"cost$center\"}";
+  const size_t dollarLength = uart_protocol::encodeV2(
+    uart_protocol::MessageType::Request, 0, 43,
+    reinterpret_cast<const uint8_t*>(dollarPayload), strlen(dollarPayload),
+    encoded, sizeof(encoded));
+  completed = false;
+  for (size_t i = 0; i < dollarLength; ++i) {
+    completed = parser.feed(encoded[i], static_cast<uint32_t>(700 + i), frame) || completed;
+  }
+  assert(completed);
+  assert(strcmp(reinterpret_cast<const char*>(frame.payload), dollarPayload) == 0);
+
+  // Oversized headers are rejected, and the next valid frame still decodes.
+  const uint8_t oversized[] = {0xA5, 0x4E, 0x02, 0x02, 0x00, 0x01, 0x00, 0x01, 0x02};
+  for (size_t i = 0; i < sizeof(oversized); ++i) {
+    assert(!parser.feed(oversized[i], static_cast<uint32_t>(800 + i), frame));
+  }
+  assert(parser.stats().lengthErrors == 1);
+
+  const char compactPayload[] = "{}";
+  const size_t compactLength = uart_protocol::encodeV2(
+    uart_protocol::MessageType::Heartbeat, 0, 44,
+    reinterpret_cast<const uint8_t*>(compactPayload), strlen(compactPayload),
+    encoded, sizeof(encoded));
+  completed = false;
+  for (size_t i = 0; i < compactLength; ++i) {
+    completed = parser.feed(encoded[i], static_cast<uint32_t>(900 + i), frame) || completed;
+  }
+  assert(completed && frame.sequence == 44);
+
+  // Truncation times out, then arbitrary noise followed by continuous valid
+  // frames must recover without reset or data loss.
+  for (size_t i = 0; i < compactLength / 2; ++i) {
+    parser.feed(encoded[i], static_cast<uint32_t>(1000 + i), frame);
+  }
+  parser.pollTimeout(1400);
+  assert(parser.stats().timeouts == 2);
+  const uint8_t noise[] = {0x00, 0xff, 0xA5, 0x00, '\n', 0x7f};
+  for (size_t i = 0; i < sizeof(noise); ++i) {
+    parser.feed(noise[i], static_cast<uint32_t>(1500 + i), frame);
+  }
+  unsigned decoded = 0;
+  for (unsigned repeat = 0; repeat < 32; ++repeat) {
+    for (size_t i = 0; i < compactLength; ++i) {
+      if (parser.feed(encoded[i], static_cast<uint32_t>(1600 + repeat * compactLength + i), frame)) {
+        ++decoded;
+      }
+    }
+  }
+  assert(decoded == 32);
+  assert(parser.stats().rxFrames == 36);
   return 0;
 }

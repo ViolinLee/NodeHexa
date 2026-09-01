@@ -66,7 +66,9 @@ SemaphoreHandle_t flagMutex;
 // 串口通讯相关变量
 static uart_protocol::Parser uartParser;
 static SemaphoreHandle_t uartTxMutex = nullptr;
-static TaskHandle_t serialCommandTaskHandle = nullptr;
+static QueueHandle_t uartFrameQueue = nullptr;
+static TaskHandle_t uartDispatchTaskHandle = nullptr;
+static volatile uint32_t uartQueueDrops = 0;
 static bool serialDispatchV2 = false;
 static uint16_t serialDispatchSequence = 0;
 static bool v2PeerSeen = false;
@@ -129,6 +131,7 @@ void LEDControllerTask(void *pvParameters);
 // 串口通讯相关函数声明
 void parseSerialMovementCommand(const String& jsonString);
 void SerialCommandTask(void *pvParameters);
+void UartDispatchTask(void *pvParameters);
 void sendSerialResponse(const String& message);
 void clearMovementFlag();
 static const char* motionButtonModeToString(devsettings::MotionButtonMode mode);
@@ -182,6 +185,10 @@ void setup() {
   voltageMutex = xSemaphoreCreateMutex();
   flagMutex = xSemaphoreCreateMutex();
   uartTxMutex = xSemaphoreCreateMutex();
+  uartFrameQueue = xQueueCreate(8, sizeof(uart_protocol::Frame));
+  if (!uartFrameQueue) {
+    Serial.println("[UART] Failed to allocate frame queue; UART control disabled.");
+  }
 
   if (!buzzer::begin()) {
     Serial.println("[Buzzer] Initialization failed; continuing without audio.");
@@ -284,15 +291,12 @@ void setup() {
     NULL
   );
 
-  // 创建串口指令处理任务
-  xTaskCreate(
-    SerialCommandTask,
-    "SerialCommand",
-    4096,
-    NULL,
-    2,  // 提高优先级到2，确保串口数据及时处理
-    NULL
-  );
+  if (uartFrameQueue) {
+    // RX only parses and enqueues. Business handling runs independently so a
+    // slow command can never make the hardware UART overflow silently.
+    xTaskCreate(SerialCommandTask, "UartRx", 4096, NULL, 3, NULL);
+    xTaskCreate(UartDispatchTask, "UartDispatch", 6144, NULL, 2, NULL);
+  }
 
   printWelcomeMessage();
 
@@ -518,6 +522,7 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   uartDiagnostics["lengthErrors"] = uartStats.lengthErrors;
   uartDiagnostics["timeouts"] = uartStats.timeouts;
   uartDiagnostics["legacyFrames"] = uartStats.legacyFrames;
+  uartDiagnostics["queueDrops"] = uartQueueDrops;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
   power["lowBatteryPolicy"] = power::policyToString(getEffectiveLowBatteryPolicy());
@@ -1853,8 +1858,7 @@ void parseSerialMovementCommand(const String& jsonString) {
 /* 串口指令处理任务
 */
 void SerialCommandTask(void *pvParameters) {
-  Serial.println("SerialCommandTask started - waiting for UART2 data...");
-  serialCommandTaskHandle = xTaskGetCurrentTaskHandle();
+  Serial.println("UartRx task started - waiting for UART2 data...");
   uart_protocol::Frame frame;
 
   while(1) {
@@ -1864,34 +1868,9 @@ void SerialCommandTask(void *pvParameters) {
         continue;
       }
 
-      serialDispatchV2 = frame.format == uart_protocol::Format::V2;
-      serialDispatchSequence = frame.sequence;
-      if (serialDispatchV2) {
-        v2PeerSeen = true;
+      if (xQueueSend(uartFrameQueue, &frame, 0) != pdTRUE) {
+        ++uartQueueDrops;
       }
-
-      if (frame.format == uart_protocol::Format::V2 &&
-          frame.messageType == uart_protocol::MessageType::Hello) {
-        StaticJsonDocument<256> hello;
-        hello["device"] = "nodehexa";
-        hello["robotType"] = board::kRobotType;
-        hello["firmware"] = NODEHEXA_STRINGIFY(FIRMWARE_VERSION);
-        hello["protocol"] = 2;
-        JsonArray capabilities = hello.createNestedArray("capabilities");
-        capabilities.add("control");
-        capabilities.add("power_event");
-        capabilities.add("camera_provision");
-        String response;
-        serializeJson(hello, response);
-        sendSerialResponse(response);
-      } else if (frame.format == uart_protocol::Format::Legacy ||
-                 frame.messageType == uart_protocol::MessageType::Request) {
-        parseSerialMovementCommand(reinterpret_cast<const char*>(frame.payload));
-      } else if (frame.messageType == uart_protocol::MessageType::Heartbeat) {
-        sendSerialResponse("{\"status\":\"success\"}");
-      }
-      serialDispatchV2 = false;
-      serialDispatchSequence = 0;
     }
 
     uartParser.pollTimeout(millis());
@@ -1899,11 +1878,52 @@ void SerialCommandTask(void *pvParameters) {
   }
 }
 
+void UartDispatchTask(void *pvParameters) {
+  Serial.println("UartDispatch task started.");
+  uartDispatchTaskHandle = xTaskGetCurrentTaskHandle();
+  uart_protocol::Frame frame;
+
+  while (1) {
+    if (xQueueReceive(uartFrameQueue, &frame, portMAX_DELAY) != pdTRUE) {
+      continue;
+    }
+
+    serialDispatchV2 = frame.format == uart_protocol::Format::V2;
+    serialDispatchSequence = frame.sequence;
+    if (serialDispatchV2) {
+      v2PeerSeen = true;
+    }
+
+    if (frame.format == uart_protocol::Format::V2 &&
+        frame.messageType == uart_protocol::MessageType::Hello) {
+      StaticJsonDocument<256> hello;
+      hello["device"] = "nodehexa";
+      hello["robotType"] = board::kRobotType;
+      hello["firmware"] = NODEHEXA_STRINGIFY(FIRMWARE_VERSION);
+      hello["protocol"] = 2;
+      JsonArray capabilities = hello.createNestedArray("capabilities");
+      capabilities.add("control");
+      capabilities.add("power_event");
+      capabilities.add("camera_provision");
+      String response;
+      serializeJson(hello, response);
+      sendSerialResponse(response);
+    } else if (frame.format == uart_protocol::Format::Legacy ||
+               frame.messageType == uart_protocol::MessageType::Request) {
+      parseSerialMovementCommand(reinterpret_cast<const char*>(frame.payload));
+    } else if (frame.messageType == uart_protocol::MessageType::Heartbeat) {
+      sendSerialResponse("{\"status\":\"success\"}");
+    }
+    serialDispatchV2 = false;
+    serialDispatchSequence = 0;
+  }
+}
+
 /* 发送串口响应
 */
 void sendSerialResponse(const String& message) {
-  const bool inDispatchTask = serialCommandTaskHandle &&
-                              xTaskGetCurrentTaskHandle() == serialCommandTaskHandle;
+  const bool inDispatchTask = uartDispatchTaskHandle &&
+                              xTaskGetCurrentTaskHandle() == uartDispatchTaskHandle;
   const bool useV2 = (inDispatchTask && serialDispatchV2) || (!inDispatchTask && v2PeerSeen);
   if (uartTxMutex && xSemaphoreTake(uartTxMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
     Serial.println("[UART] TX mutex timeout; response dropped.");
