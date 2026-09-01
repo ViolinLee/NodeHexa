@@ -35,23 +35,13 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "motion_controller.h"
 #include "performance_controller.h"
 #include "single_leg_controller.h"
+#include "board_config.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
 #define CALIBRATESTART "CALIBRATESTART"
 #define CALIBRATESAVE "CALIBRATESAVE"
 #define CALIBRATESTART_EXISTING "CALIBRATESTART_EXISTING"
-
-// 机型信息（用于 Web UI 自适配）
-#ifdef ROBOT_MODEL_NODEQUADMINI
-static constexpr const char* kRobotType = "quad";
-static constexpr int kRobotLegCount = 4;
-static constexpr const char* kCalibrationFilePath = "/calibration_quad.json";
-#else
-static constexpr const char* kRobotType = "hexa";
-static constexpr int kRobotLegCount = 6;
-static constexpr const char* kCalibrationFilePath = "/calibration.json";
-#endif
 
 // 调试模式控制
 // #define DEBUG_ADC_MONITOR  // 注释此行可关闭电池电压ADC调试输出
@@ -60,8 +50,6 @@ static constexpr const char* kCalibrationFilePath = "/calibration.json";
 // 常量定义
 
 // 串口配置
-#define UART2_BAUD_RATE 115200
-
 // 静态变量
 static int8_t _mode = 0;  // 六足工作模式：0-运动模式 1-校准模式
 static int16_t flag = 0;   // 六足运动模式: 见枚举hexapod:MovementMode
@@ -171,10 +159,13 @@ void setup() {
   Serial.println("Starting...");
 
   // 初始化UART2用于接收运动指令
-  Serial2.begin(UART2_BAUD_RATE, SERIAL_8N1, 16, 17);  // RX=GPIO16, TX=GPIO17 (默认引脚)
+  Serial2.begin(board::kUartBaudRate, SERIAL_8N1, board::kUartRxPin, board::kUartTxPin);
   Serial2.setTimeout(100);
   Serial2.flush(); // 清空串口缓冲区
-  Serial.printf("UART2 initialized: %d baud (GPIO16-RX, GPIO17-TX)\n", UART2_BAUD_RATE);
+  Serial.printf("UART2 initialized: %lu baud (GPIO%u-RX, GPIO%u-TX)\n",
+                static_cast<unsigned long>(board::kUartBaudRate),
+                board::kUartRxPin,
+                board::kUartTxPin);
 
   // 初始化电池监测相关硬件
   pinMode(BAT_ADC, INPUT);
@@ -183,7 +174,7 @@ void setup() {
   flagMutex = xSemaphoreCreateMutex();
 
   // 初始化I2C
-  Wire.setPins(21, 22);
+  Wire.setPins(board::kI2cSdaPin, board::kI2cSclPin);
 
   // 挂载SPIFFS文件系统
   if (!SPIFFS.begin(true)) {
@@ -470,12 +461,12 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
 void handleCalibrationGet(AsyncWebServerRequest *request) {
   StaticJsonDocument<1024> doc;
 
-  bool exists = SPIFFS.exists(kCalibrationFilePath);
+  bool exists = SPIFFS.exists(board::kCalibrationFilePath);
   doc["exists"] = exists;
 
   JsonArray offsets = doc.createNestedArray("offsets");
   // 按机型导出校准数据（四足=4条腿，六足=6条腿）
-  for (int i = 0; i < kRobotLegCount; i++) {
+  for (int i = 0; i < board::kLegCount; i++) {
     JsonArray leg = offsets.createNestedArray();
     for (int j = 0; j < 3; j++) {
       int offset = 0;
@@ -495,8 +486,11 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 void handleCapsGet(AsyncWebServerRequest *request) {
   StaticJsonDocument<512> doc;
   JsonObject robot = doc.createNestedObject("robot");
-  robot["type"] = kRobotType;
-  robot["legCount"] = kRobotLegCount;
+  robot["type"] = board::kRobotType;
+  robot["legCount"] = board::kLegCount;
+  robot["hardwareFamily"] = board::kHardwareFamily;
+  robot["hardwareRevision"] = board::kHardwareRevision;
+  robot["hardwareProfile"] = board::kHardwareProfile;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
   power["lowBatteryProtectionEnabled"] = devsettings::isLowBatteryProtectionEnabled();

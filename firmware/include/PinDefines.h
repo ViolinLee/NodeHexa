@@ -1,7 +1,10 @@
 #ifndef PIN_DEFINES_H_
 #define PIN_DEFINES_H_
 
-#define BAT_LED 25
-#define BAT_ADC 34
+#include "board_config.h"
+
+// Compatibility aliases for code not yet migrated to board_config.h.
+#define BAT_LED board::kBatteryLedPin
+#define BAT_ADC board::kBatteryAdcPin
 
 #endif
