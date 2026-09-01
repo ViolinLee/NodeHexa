@@ -77,6 +77,7 @@ static const uint8_t LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES = 2; // 连续低压�
 static const unsigned long LOW_BATTERY_SERIAL_REMINDER_INTERVAL_MS = 10000; // 串口提醒重发间隔
 // 低电量锁存：一旦置 true，只能通过重启恢复（避免 ADC 电压波动导致忽高忽低）
 static bool lowBatteryLatched = false;
+static power::LowBatteryPolicy lowBatteryLatchedPolicy = power::LowBatteryPolicy::ReleasePwm;
 static bool lowBatteryHandled = false; // 是否已执行过“强制待机/清队列/通知”动作
 static uint16_t latestBatteryVoltageMv = 0;
 static constexpr const char* kLowBatteryUiMessage = "电量低，请关闭电源后进行充电！";
@@ -133,6 +134,7 @@ static bool parseMotionButtonModeField(JsonVariantConst value, devsettings::Moti
 
 // 低电量锁存辅助
 static bool isLowBatteryLatched();
+static power::LowBatteryPolicy getEffectiveLowBatteryPolicy();
 static bool isMotionBlocked();
 static void handleLowBatteryLatchedOnce();
 static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client);
@@ -511,7 +513,7 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   protocol["uartLegacy"] = true;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
-  power["lowBatteryPolicy"] = power::policyToString(devsettings::getLowBatteryPolicy());
+  power["lowBatteryPolicy"] = power::policyToString(getEffectiveLowBatteryPolicy());
   power["motionBlocked"] = isMotionBlocked();
   const servo_output::OutputState outputState = servo_output::state();
   power["servoPwmReleased"] = outputState.released;
@@ -1041,6 +1043,7 @@ void BatteryMonitorTask(void *pvParameters) {
     // 低电量锁存：连续低压达到阈值后锁存，直到重启恢复
     if (consecutiveLowCount >= LOW_BATTERY_LATCH_CONSECUTIVE_SAMPLES && !lowBatteryLatched) {
       lowBatteryLatched = true;
+      lowBatteryLatchedPolicy = devsettings::getLowBatteryPolicy();
       lowBatteryHandled = false; // 允许主循环执行一次强制待机/通知
       newlyLatched = true;
 
@@ -1138,7 +1141,14 @@ static bool isLowBatteryLatched() {
 
 static bool isMotionBlocked() {
   return isLowBatteryLatched() &&
-         power::policyBlocksMotion(devsettings::getLowBatteryPolicy());
+         power::policyBlocksMotion(getEffectiveLowBatteryPolicy());
+}
+
+static power::LowBatteryPolicy getEffectiveLowBatteryPolicy() {
+  if (!isLowBatteryLatched()) {
+    return devsettings::getLowBatteryPolicy();
+  }
+  return lowBatteryLatchedPolicy;
 }
 
 static uint16_t getLatestBatteryVoltageMv() {
@@ -1213,7 +1223,7 @@ static void sendLowBatteryEventToSerial() {
   StaticJsonDocument<320> doc;
   doc["event"] = "lowBattery";
   doc["code"] = kLowBatteryProtectCode;
-  doc["policy"] = power::policyToString(devsettings::getLowBatteryPolicy());
+  doc["policy"] = power::policyToString(getEffectiveLowBatteryPolicy());
   doc["motionBlocked"] = isMotionBlocked();
   doc["servoPwmReleased"] = servo_output::state().released;
   doc["alarmActive"] = buzzer::alarmActive();
@@ -1262,7 +1272,7 @@ static void handleLowBatteryLatchedOnce() {
     singleleg::controller().stop("[Power] low battery, clear single leg");
     clearMovementFlag();
   }
-  if (power::policyReleasesPwm(devsettings::getLowBatteryPolicy())) {
+  if (power::policyReleasesPwm(getEffectiveLowBatteryPolicy())) {
     const bool released = servo_output::releaseAll();
     Serial.printf("[Power] Servo PWM release requested: %s.\n", released ? "ok" : "failed");
   }
@@ -1270,7 +1280,7 @@ static void handleLowBatteryLatchedOnce() {
   StaticJsonDocument<320> doc;
   doc["event"] = "lowBattery";
   doc["code"] = kLowBatteryProtectCode;
-  doc["policy"] = power::policyToString(devsettings::getLowBatteryPolicy());
+  doc["policy"] = power::policyToString(getEffectiveLowBatteryPolicy());
   doc["motionBlocked"] = isMotionBlocked();
   doc["servoPwmReleased"] = servo_output::state().released;
   doc["alarmActive"] = buzzer::alarmActive();
@@ -1285,7 +1295,7 @@ static void handleLowBatteryLatchedOnce() {
   sendLowBatteryEventToSerial();
 
   Serial.printf("[Power] Low battery latched: policy=%s, motionBlocked=%s.\n",
-                power::policyToString(devsettings::getLowBatteryPolicy()),
+                power::policyToString(getEffectiveLowBatteryPolicy()),
                 isMotionBlocked() ? "true" : "false");
 }
 

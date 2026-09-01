@@ -2,7 +2,8 @@
   const STYLE_ID = 'power-ui-style';
   const DEFAULT_STATE = {
     lowBatteryLatched: false,
-    lowBatteryProtectionEnabled: true,
+    lowBatteryPolicy: 'release_pwm',
+    motionBlocked: false,
     voltageMv: 0,
     percentEstimate: 0,
     lowBatteryThresholdMv: 7200
@@ -76,7 +77,7 @@
     }
 
     function isLowBatteryBlocked() {
-      return state.lowBatteryLatched;
+      return state.lowBatteryLatched && state.motionBlocked;
     }
 
     function isLowBatteryActive() {
@@ -119,8 +120,11 @@
         if (typeof data.power.lowBatteryLatched !== 'undefined') {
           state.lowBatteryLatched = !!data.power.lowBatteryLatched;
         }
-        if (typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
-          state.lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
+        if (typeof data.power.lowBatteryPolicy === 'string') {
+          state.lowBatteryPolicy = data.power.lowBatteryPolicy;
+        }
+        if (typeof data.power.motionBlocked !== 'undefined') {
+          state.motionBlocked = !!data.power.motionBlocked;
         }
         if (typeof data.power.voltageMv === 'number') {
           state.voltageMv = data.power.voltageMv;
@@ -147,7 +151,6 @@
     }
 
     function handleLowBatteryFeedback(message) {
-      if (!state.lowBatteryProtectionEnabled) return false;
       state.lowBatteryLatched = true;
       render();
       notifyStateChange();
@@ -158,6 +161,8 @@
     function handleWsMessage(msg) {
       if (!msg) return false;
       if (msg.event === 'lowBattery') {
+        if (typeof msg.policy === 'string') state.lowBatteryPolicy = msg.policy;
+        if (typeof msg.motionBlocked !== 'undefined') state.motionBlocked = !!msg.motionBlocked;
         return handleLowBatteryFeedback(msg.message);
       }
       if (msg.status === 'error' && isLowBatteryErrorMessage(msg.message)) {
@@ -174,18 +179,16 @@
     }
 
     function guardLowBattery() {
-      if (state.lowBatteryProtectionEnabled && isLowBatteryBlocked()) {
+      if (isLowBatteryBlocked()) {
         alertMessage(getLowBatteryMessage());
         return true;
       }
       return false;
     }
 
-    function setProtectionEnabled(enabled) {
-      state.lowBatteryProtectionEnabled = !!enabled;
-      if (!state.lowBatteryProtectionEnabled) {
-        state.lowBatteryLatched = false;
-      }
+    function setPolicy(policy) {
+      state.lowBatteryPolicy = policy || 'release_pwm';
+      state.motionBlocked = state.lowBatteryLatched && state.lowBatteryPolicy !== 'warn_only';
       render();
       notifyStateChange();
     }
@@ -211,7 +214,7 @@
       guardLowBattery: guardLowBattery,
       handleWsMessage: handleWsMessage,
       handleHttpErrorMessage: handleHttpErrorMessage,
-      setProtectionEnabled: setProtectionEnabled,
+      setPolicy: setPolicy,
       startPolling: startPolling,
       stopPolling: stopPolling,
       isLowBatteryActive: isLowBatteryActive,
