@@ -38,6 +38,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include "board_config.h"
 #include "servo_output.h"
 #include "buzzer.h"
+#include "uart_protocol.h"
 
 // 宏定义
 #define REACT_DELAY hexapod::config::movementInterval
@@ -63,10 +64,12 @@ static float test_angle = 0.;
 SemaphoreHandle_t flagMutex;
 
 // 串口通讯相关变量
-static String serialBuffer = "";  // 串口数据接收缓冲区
-static const unsigned long SERIAL_TIMEOUT = 1000;  // 串口数据超时时间(ms)
-static unsigned long lastSerialDataTime = 0;  // 上次接收串口数据的时间
-static bool frameStarted = false;  // 帧接收状态：false-等待起始符$，true-正在接收数据
+static uart_protocol::Parser uartParser;
+static SemaphoreHandle_t uartTxMutex = nullptr;
+static TaskHandle_t serialCommandTaskHandle = nullptr;
+static bool serialDispatchV2 = false;
+static uint16_t serialDispatchSequence = 0;
+static bool v2PeerSeen = false;
 
 // 电池监测相关变量
 static const float LOW_VOLTAGE_WARNING_THRESHOLD = 7.2f; // UI/警告阈值(V)
@@ -127,7 +130,6 @@ void LEDControllerTask(void *pvParameters);
 void parseSerialMovementCommand(const String& jsonString);
 void SerialCommandTask(void *pvParameters);
 void sendSerialResponse(const String& message);
-void testUART2Connection();
 void clearMovementFlag();
 static const char* motionButtonModeToString(devsettings::MotionButtonMode mode);
 static bool parseMotionButtonModeField(JsonVariantConst value, devsettings::MotionButtonMode& mode);
@@ -179,6 +181,7 @@ void setup() {
   pinMode(BAT_LED, OUTPUT);
   voltageMutex = xSemaphoreCreateMutex();
   flagMutex = xSemaphoreCreateMutex();
+  uartTxMutex = xSemaphoreCreateMutex();
 
   if (!buzzer::begin()) {
     Serial.println("[Buzzer] Initialization failed; continuing without audio.");
@@ -294,9 +297,6 @@ void setup() {
   printWelcomeMessage();
 
   buzzer::play(buzzer::Cue::Startup);
-
-  // 测试UART2连接
-  testUART2Connection();
 
   Serial.print("Started, mode=");
   Serial.println(_mode);
@@ -499,7 +499,7 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 
 /* UI 能力探测：返回机型、电源与表演能力 */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<768> doc;
+  StaticJsonDocument<1024> doc;
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = board::kRobotType;
   robot["legCount"] = board::kLegCount;
@@ -509,8 +509,15 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   JsonObject firmware = doc.createNestedObject("firmware");
   firmware["version"] = NODEHEXA_STRINGIFY(FIRMWARE_VERSION);
   JsonObject protocol = doc.createNestedObject("protocol");
-  protocol["uartCurrent"] = 1;
+  protocol["uartCurrent"] = 2;
   protocol["uartLegacy"] = true;
+  const uart_protocol::Stats& uartStats = uartParser.stats();
+  JsonObject uartDiagnostics = protocol.createNestedObject("diagnostics");
+  uartDiagnostics["rxFrames"] = uartStats.rxFrames;
+  uartDiagnostics["crcErrors"] = uartStats.crcErrors;
+  uartDiagnostics["lengthErrors"] = uartStats.lengthErrors;
+  uartDiagnostics["timeouts"] = uartStats.timeouts;
+  uartDiagnostics["legacyFrames"] = uartStats.legacyFrames;
   JsonObject power = doc.createNestedObject("power");
   power["lowBatteryLatched"] = isLowBatteryLatched();
   power["lowBatteryPolicy"] = power::policyToString(getEffectiveLowBatteryPolicy());
@@ -1847,108 +1854,89 @@ void parseSerialMovementCommand(const String& jsonString) {
 */
 void SerialCommandTask(void *pvParameters) {
   Serial.println("SerialCommandTask started - waiting for UART2 data...");
-  
-  // 初始化串口缓冲区状态
-  serialBuffer = "";
-  frameStarted = false;
-  lastSerialDataTime = 0;
-  
+  serialCommandTaskHandle = xTaskGetCurrentTaskHandle();
+  uart_protocol::Frame frame;
+
   while(1) {
-    // 检查UART2是否有可用数据
     while (Serial2.available()) {
-      char c = Serial2.read();
-      lastSerialDataTime = millis();
-      
-      // 调试输出：显示接收到的字符
-      #ifdef DEBUG_FRAME_RECEIVE
-      Serial.printf("UART2 received char: '%c' (0x%02X)\n", c, c);
-      #endif
-      
-      // 帧接收状态机
-      if (!frameStarted) {
-        // 等待起始符$
-        if (c == '$') {
-          frameStarted = true;
-          serialBuffer = "";  // 清空缓冲区，准备接收新帧
-          #ifdef DEBUG_FRAME_RECEIVE
-          Serial.println("Frame start detected: $");
-          #endif
-        }
-        // 其他字符都丢弃
-      } else {
-        // 正在接收数据帧
-        if (c == '\n' || c == '\r') {
-          // 帧结束，处理接收到的数据
-          if (serialBuffer.length() > 0) {
-            Serial.printf("Serial2 received complete frame: [%s]\n", serialBuffer.c_str());
-            
-            // 检查是否是简单测试消息
-            if (serialBuffer == "Hello from NodeMCU!") {
-              Serial.println("Received test message from NodeMCU!");
-              Serial2.println("Hello back from Hexapod!");
-              Serial.println("Test response sent via UART2");
-            } else {
-              // 解析串口指令
-              parseSerialMovementCommand(serialBuffer);
-            }
-          }
-          
-          // 重置帧接收状态
-          frameStarted = false;
-          serialBuffer = "";
-        } else {
-          // 将字符添加到缓冲区
-          serialBuffer += c;
-        }
+      const uint8_t byte = static_cast<uint8_t>(Serial2.read());
+      if (!uartParser.feed(byte, millis(), frame)) {
+        continue;
       }
+
+      serialDispatchV2 = frame.format == uart_protocol::Format::V2;
+      serialDispatchSequence = frame.sequence;
+      if (serialDispatchV2) {
+        v2PeerSeen = true;
+      }
+
+      if (frame.format == uart_protocol::Format::V2 &&
+          frame.messageType == uart_protocol::MessageType::Hello) {
+        StaticJsonDocument<256> hello;
+        hello["device"] = "nodehexa";
+        hello["robotType"] = board::kRobotType;
+        hello["firmware"] = NODEHEXA_STRINGIFY(FIRMWARE_VERSION);
+        hello["protocol"] = 2;
+        JsonArray capabilities = hello.createNestedArray("capabilities");
+        capabilities.add("control");
+        capabilities.add("power_event");
+        capabilities.add("camera_provision");
+        String response;
+        serializeJson(hello, response);
+        sendSerialResponse(response);
+      } else if (frame.format == uart_protocol::Format::Legacy ||
+                 frame.messageType == uart_protocol::MessageType::Request) {
+        parseSerialMovementCommand(reinterpret_cast<const char*>(frame.payload));
+      } else if (frame.messageType == uart_protocol::MessageType::Heartbeat) {
+        sendSerialResponse("{\"status\":\"success\"}");
+      }
+      serialDispatchV2 = false;
+      serialDispatchSequence = 0;
     }
-    
-    // 检查串口数据超时，防止缓冲区溢出
-    if (serialBuffer.length() > 0 && (millis() - lastSerialDataTime) > SERIAL_TIMEOUT) {
-      Serial.printf("Serial2 timeout, received: [%s]\n", serialBuffer.c_str());
-      Serial.println("Serial2 command timeout, clearing buffer");
-      serialBuffer = "";
-      frameStarted = false;  // 超时时也重置帧状态
-    }
-    
-    // 减少任务延时，提高响应速度
-    vTaskDelay(pdMS_TO_TICKS(10));  // 10ms延时，100Hz处理频率，提高响应速度
+
+    uartParser.pollTimeout(millis());
+    vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
 
 /* 发送串口响应
 */
 void sendSerialResponse(const String& message) {
-  // 通过UART2发送响应，保持与接收格式一致
-  Serial2.print("$");
-  Serial2.println(message);
-  
-  // 同时在调试串口打印响应信息
-  Serial.printf("Response sent via UART2: $%s\n", message.c_str());
-}
+  const bool inDispatchTask = serialCommandTaskHandle &&
+                              xTaskGetCurrentTaskHandle() == serialCommandTaskHandle;
+  const bool useV2 = (inDispatchTask && serialDispatchV2) || (!inDispatchTask && v2PeerSeen);
+  if (uartTxMutex && xSemaphoreTake(uartTxMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+    Serial.println("[UART] TX mutex timeout; response dropped.");
+    return;
+  }
 
-/* 测试UART2连接
-*/
-void testUART2Connection() {
-  Serial.println("Testing UART2 connection...");
-  
-  // 发送测试消息
-  Serial2.println("UART2 Test Message from Hexapod");
-  Serial.println("Test message sent via UART2");
-  
-  // 等待一小段时间
-  delay(100);
-  
-  // 检查是否有响应
-  if (Serial2.available()) {
-    Serial.println("UART2 response detected:");
-    while (Serial2.available()) {
-      char c = Serial2.read();
-      Serial.printf("Response char: '%c' (0x%02X)\n", c, c);
+  if (useV2) {
+    uint8_t encoded[uart_protocol::kMaxPayloadLength + 11];
+    const uint16_t payloadLength = static_cast<uint16_t>(
+      message.length() > uart_protocol::kMaxPayloadLength
+        ? uart_protocol::kMaxPayloadLength
+        : message.length()
+    );
+    const uart_protocol::MessageType type = inDispatchTask
+      ? uart_protocol::MessageType::Response
+      : uart_protocol::MessageType::Event;
+    const size_t encodedLength = uart_protocol::encodeV2(
+      type,
+      inDispatchTask ? 0x01 : 0x00,
+      inDispatchTask ? serialDispatchSequence : 0,
+      reinterpret_cast<const uint8_t*>(message.c_str()),
+      payloadLength,
+      encoded,
+      sizeof(encoded)
+    );
+    if (encodedLength > 0) {
+      Serial2.write(encoded, encodedLength);
     }
   } else {
-    Serial.println("No UART2 response detected");
+    Serial2.print('$');
+    Serial2.println(message);
   }
-  
-  Serial.println("UART2 test completed");
+  if (uartTxMutex) {
+    xSemaphoreGive(uartTxMutex);
+  }
 }
