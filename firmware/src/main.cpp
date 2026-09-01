@@ -162,8 +162,15 @@ struct AdvancedCommandResult {
   String message;
 };
 
+struct BasicCommandResult {
+  bool handled = false;
+  bool success = false;
+  String message;
+};
+
 static void handleSequenceComplete(uint32_t sequenceId);
 static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json);
+static BasicCommandResult handleBasicControlCommand(JsonVariantConst json);
 static bool parseMovementModeField(JsonVariantConst value, hexapod::MovementMode& mode);
 static bool parsePerformanceKindField(JsonVariantConst value, performance::Kind& kind);
 static bool buildActionFromJson(JsonVariantConst obj, motion::Action& action, String& error);
@@ -945,6 +952,59 @@ void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   request->send(200, "application/json", response);
 }
 
+static BasicCommandResult handleBasicControlCommand(JsonVariantConst json) {
+  BasicCommandResult result;
+  const bool hasMovement = json.containsKey("movementMode");
+  const bool hasSpeed = json.containsKey("speed");
+  const bool hasSpeedLevel = json.containsKey("speedLevel");
+  const bool hasGait = json.containsKey("gaitMode");
+  result.handled = hasMovement || hasSpeed || hasSpeedLevel || hasGait;
+  if (!result.handled) {
+    result.message = "No valid command field found";
+    return result;
+  }
+
+  const int16_t movementMode = hasMovement ? json["movementMode"].as<int16_t>() : 0;
+  const int speedLevel = hasSpeedLevel ? json["speedLevel"].as<int>() : 0;
+  if ((hasMovement && (!json["movementMode"].is<int>() || movementMode < 0)) ||
+      (hasSpeed && !json["speed"].is<float>()) ||
+      (hasSpeedLevel && (!json["speedLevel"].is<int>() ||
+                         speedLevel < hexapod::SPEED_SLOWEST ||
+                         speedLevel > hexapod::SPEED_FAST)) ||
+      (hasGait && !json["gaitMode"].is<int>())) {
+    result.message = "Invalid basic control value";
+    return result;
+  }
+
+  if (hasMovement) {
+    if (singleleg::controller().isActive()) {
+      singleleg::controller().stop("[SingleLeg] overridden by movementMode");
+    }
+    if (performance::controller().isActive()) {
+      motion::controller().clear("[Performance] overridden by movementMode");
+      performance::controller().clear("[Performance] overridden by movementMode");
+    }
+    if (xSemaphoreTake(flagMutex, pdMS_TO_TICKS(10)) != pdTRUE) {
+      result.message = "System busy, command ignored";
+      return result;
+    }
+    flag = movementMode;
+    xSemaphoreGive(flagMutex);
+  }
+  if (hasSpeed && hexapod::Robot) {
+    hexapod::Robot->setMovementSpeed(json["speed"].as<float>());
+  }
+  if (hasSpeedLevel && hexapod::Robot) {
+    hexapod::Robot->setMovementSpeedLevel(static_cast<hexapod::SpeedLevel>(speedLevel));
+  }
+  if (hasGait && hexapod::Robot) {
+    hexapod::Robot->setGaitMode(json["gaitMode"].as<int>());
+  }
+  result.success = true;
+  result.message = "Command applied";
+  return result;
+}
+
 /* 机器人指令回调处理
 */
 void onRobotCmdWebSocketEvent(AsyncWebSocket *server, 
@@ -1020,61 +1080,15 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
           return;
         }
 
-        if (json.containsKey("movementMode")) {
-          if (singleleg::controller().isActive()) {
-            singleleg::controller().stop("[SingleLeg] overridden by movementMode");
-          }
-          int16_t movementMode = json["movementMode"];
-
-          if (performance::controller().isActive()) {
-            motion::controller().clear("[Performance] overridden by movementMode");
-            performance::controller().clear("[Performance] overridden by movementMode");
-          }
-
-          // 使用短超时时间获取锁
-          if (xSemaphoreTake(flagMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-            if (flag != movementMode) {
-              flag = movementMode; 
-              Serial.printf("Receive Movement Command Flag: %d\n", movementMode);
-            }
-            xSemaphoreGive(flagMutex);
-          } else {
-            Serial.println("WebSocket: Failed to acquire flag lock, command ignored");
-            if (client) {
-              client->text("{\"status\":\"error\",\"message\":\"System busy, command ignored\"}");
-            }
-          }
-        }
-        
-        // Handle speed control
-        if (json.containsKey("speed")) {
-          float speed = json["speed"];
-          if (hexapod::Robot) {
-            hexapod::Robot->setMovementSpeed(speed);
-          }
-          Serial.printf("WebSocket: Speed set to %.2f\n", speed);
-        }
-        
-        // Handle speed level control
-        if (json.containsKey("speedLevel")) {
-          int level = json["speedLevel"];
-          if (level >= hexapod::SPEED_SLOWEST && level <= hexapod::SPEED_FAST) {
-            if (hexapod::Robot) {
-              hexapod::Robot->setMovementSpeedLevel((hexapod::SpeedLevel)level);
-            }
-            Serial.printf("WebSocket: Speed level set to %d\n", level);
-          } else {
-            Serial.printf("WebSocket: Invalid speed level %d\n", level);
-          }
-        }
-
-        // Handle gait mode control (可选字段，六足实现会忽略)
-        if (json.containsKey("gaitMode")) {
-          int gaitMode = json["gaitMode"];
-          if (hexapod::Robot) {
-            hexapod::Robot->setGaitMode(gaitMode);
-          }
-          Serial.printf("WebSocket: Gait mode set to %d\n", gaitMode);
+        const BasicCommandResult basic =
+          handleBasicControlCommand(json.as<JsonVariantConst>());
+        if (!basic.success && client) {
+          StaticJsonDocument<160> ack;
+          ack["status"] = "error";
+          ack["message"] = basic.message;
+          String payload;
+          serializeJson(ack, payload);
+          client->text(payload);
         }
       }
       break;
@@ -1793,117 +1807,18 @@ void parseSerialMovementCommand(const String& jsonString) {
     return;
   }
 
-  bool hasValidCommand = false;
-
-  // 检查是否包含movementMode字段
-  if (json.containsKey("movementMode")) {
-    if (singleleg::controller().isActive()) {
-      singleleg::controller().stop("[SingleLeg] overridden by movementMode");
-    }
-    hasValidCommand = true;
-    int16_t movementMode = json["movementMode"];
-
-    if (performance::controller().isActive()) {
-      motion::controller().clear("[Performance] overridden by movementMode");
-      performance::controller().clear("[Performance] overridden by movementMode");
-    }
-    
-    // 验证运动模式范围
-    // if (movementMode >= 0 && movementMode < hexapod::MOVEMENT_TOTAL) {
-    if (movementMode >= 0) {
-      // 使用短超时时间获取锁，避免长时间等待
-      if (xSemaphoreTake(flagMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        if (flag != movementMode) {
-          flag = movementMode;
-          Serial.printf("UART2: Receive Movement Command Flag: %d\n", movementMode);
-          
-          // 发送成功响应
-          StaticJsonDocument<128> response;
-          response["status"] = "success";
-          response["movementMode"] = movementMode;
-          response["message"] = "Movement command executed";
-          
-          String responseStr;
-          serializeJson(response, responseStr);
-          sendSerialResponse(responseStr);
-        } else {
-          // 发送重复指令响应
-          StaticJsonDocument<128> response;
-          response["status"] = "success";
-          response["movementMode"] = movementMode;
-          response["message"] = "Movement mode already set";
-          
-          String responseStr;
-          serializeJson(response, responseStr);
-          sendSerialResponse(responseStr);
-        }
-        xSemaphoreGive(flagMutex);
-      } else {
-        Serial.println("UART2: Failed to acquire flag lock, command ignored");
-        sendSerialResponse("{\"status\":\"error\",\"message\":\"System busy, command ignored\"}");
-      }
-    } else {
-      sendSerialResponse("{\"status\":\"error\",\"message\":\"Invalid movement mode\"}");
-    }
+  const BasicCommandResult basic = handleBasicControlCommand(json.as<JsonVariantConst>());
+  StaticJsonDocument<192> response;
+  response["status"] = basic.success ? "success" : "error";
+  response["message"] = basic.message;
+  if (json.containsKey("movementMode")) response["movementMode"] = json["movementMode"];
+  if (json.containsKey("speedLevel")) response["speedLevel"] = json["speedLevel"];
+  if (hexapod::Robot && (json.containsKey("speed") || json.containsKey("speedLevel"))) {
+    response["speed"] = hexapod::Robot->getMovementSpeed();
   }
-  
-  // Handle speed control
-  if (json.containsKey("speed")) {
-    hasValidCommand = true;
-    float speed = json["speed"];
-    if (hexapod::Robot) {
-      hexapod::Robot->setMovementSpeed(speed);
-    }
-    Serial.printf("UART2: Speed set to %.2f\n", speed);
-    
-    StaticJsonDocument<128> response;
-    response["status"] = "success";
-    response["speed"] = hexapod::Robot ? hexapod::Robot->getMovementSpeed() : 0.0f;
-    response["message"] = "Speed updated";
-    
-    String responseStr;
-    serializeJson(response, responseStr);
-    sendSerialResponse(responseStr);
-  }
-  
-  // Handle speed level control
-  if (json.containsKey("speedLevel")) {
-    hasValidCommand = true;
-    int level = json["speedLevel"];
-    if (level >= hexapod::SPEED_SLOWEST && level <= hexapod::SPEED_FAST) {
-      if (hexapod::Robot) {
-        hexapod::Robot->setMovementSpeedLevel((hexapod::SpeedLevel)level);
-      }
-      Serial.printf("UART2: Speed level set to %d\n", level);
-      
-      StaticJsonDocument<128> response;
-      response["status"] = "success";
-      response["speedLevel"] = level;
-      response["speed"] = hexapod::Robot ? hexapod::Robot->getMovementSpeed() : 0.0f;
-      response["message"] = "Speed level updated";
-      
-      String responseStr;
-      serializeJson(response, responseStr);
-      sendSerialResponse(responseStr);
-    } else {
-      sendSerialResponse("{\"status\":\"error\",\"message\":\"Invalid speed level\"}");
-    }
-  }
-
-  // Handle gait mode control (可选字段，六足实现会忽略)
-  if (json.containsKey("gaitMode")) {
-    hasValidCommand = true;
-    int gaitMode = json["gaitMode"];
-    if (hexapod::Robot) {
-      hexapod::Robot->setGaitMode(gaitMode);
-    }
-    Serial.printf("UART2: Gait mode set to %d\n", gaitMode);
-  }
-  
-  if (!hasValidCommand) {
-    // 如果不是有效的指令格式，发送错误响应
-    sendSerialResponse("{\"status\":\"error\",\"message\":\"No valid command field found\"}");
-  }
+  String responseStr;
+  serializeJson(response, responseStr);
+  sendSerialResponse(responseStr);
 }
 
 /* 串口指令处理任务
