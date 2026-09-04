@@ -24,7 +24,7 @@ public:
 
     bool start(uint8_t legIndex, String& error);
     void updateInput(const InputAxes& axes);
-    void stop(const char* reason = nullptr);
+    void stop(const char* reason = nullptr, bool restoreStandby = true);
 
     bool isActive() const;
     uint8_t activeLegIndex() const;

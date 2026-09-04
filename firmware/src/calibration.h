@@ -9,10 +9,10 @@
 #endif
 
 struct CalibrationData {
-    int legIndex;  // 腿的索引
-    int partIndex; // 关节的索引
-    int offset;    // 偏移量
+    int legIndex = 0;  // 腿的索引
+    int partIndex = 0; // 关节的索引
+    int offset = 0;    // 偏移量
     
-    bool modeChanged;
+    bool modeChanged = false;
     String operation;
 };

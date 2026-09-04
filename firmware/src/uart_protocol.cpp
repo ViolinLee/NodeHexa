@@ -121,12 +121,21 @@ bool Parser::feed(uint8_t byte, uint32_t nowMs, Frame& frame) {
     case State::SeekMagic1:
       if (byte == kMagic1) {
         startV2(nowMs);
+      } else if (byte == kMagic0) {
+        // Keep the second possible magic prefix and refresh its timeout.
+        state_ = State::SeekMagic1;
       } else {
-        state_ = byte == kMagic0 ? State::SeekMagic1 : State::Seek;
+        // A mismatched magic prefix is ordinary noise, not an active frame.
+        resetFrameState();
       }
       return false;
 
     case State::LegacyPayload:
+      if (byte == '$') {
+        // A fresh legacy marker supersedes a truncated legacy message.
+        startLegacy(nowMs);
+        return false;
+      }
       if (byte == '\r' || byte == '\n') {
         if (payloadIndex_ == 0) {
           resetFrameState();

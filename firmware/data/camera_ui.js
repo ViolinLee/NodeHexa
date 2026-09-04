@@ -165,6 +165,7 @@
     if (entry) entry.hidden = !state.available;
     renderProfiles();
     if (active && !state.available) {
+      api.stop();
       closeStream();
       setStatus('摄像头离线，可返回高级控制');
     } else if (active && !state.profilePending) {
@@ -185,10 +186,16 @@
     installStyles();
     installDom();
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) closeStream();
+      if (document.hidden) {
+        if (active) api.stop();
+        closeStream();
+      }
       else if (active) openStream();
     });
-    window.addEventListener('pagehide', closeStream);
+    window.addEventListener('pagehide', () => {
+      if (active) api.stop();
+      closeStream();
+    });
     capsTimer = window.setInterval(refreshCaps, 2000);
     refreshCaps();
   }

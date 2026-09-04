@@ -1197,7 +1197,10 @@
     function applySettingsResponse(data) {
       if (data && data.power && typeof data.power.lowBatteryPolicy === 'string') {
         lowBatteryPolicy = data.power.lowBatteryPolicy;
-        if (powerUi) powerUi.setPolicy(lowBatteryPolicy);
+        const effectivePolicy = typeof data.power.effectiveLowBatteryPolicy === 'string'
+          ? data.power.effectiveLowBatteryPolicy
+          : lowBatteryPolicy;
+        if (powerUi) powerUi.setPolicy(effectivePolicy);
       }
       if (data && data.motion && typeof data.motion.buttonMode === 'string') {
         motionButtonMode = data.motion.buttonMode === 'single_cycle' ? 'single_cycle' : 'continuous';

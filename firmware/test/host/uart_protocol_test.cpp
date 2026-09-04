@@ -47,6 +47,24 @@ int main() {
   assert(frame.format == uart_protocol::Format::Legacy);
   assert(strcmp(reinterpret_cast<const char*>(frame.payload), "{\"speed\":0.5}") == 0);
 
+  // A new '$' restarts a truncated legacy frame instead of contaminating JSON.
+  uart_protocol::Parser legacyResyncParser;
+  const char legacyResync[] = "$truncated${\"speed\":0.25}\n";
+  completed = false;
+  for (size_t i = 0; i < strlen(legacyResync); ++i) {
+    completed = legacyResyncParser.feed(
+      legacyResync[i], static_cast<uint32_t>(250 + i), frame) || completed;
+  }
+  assert(completed);
+  assert(strcmp(reinterpret_cast<const char*>(frame.payload), "{\"speed\":0.25}") == 0);
+
+  // A partial magic prefix followed by noise must not create a false timeout.
+  uart_protocol::Parser noiseParser;
+  noiseParser.feed(0xA5, 270, frame);
+  noiseParser.feed(0x00, 271, frame);
+  noiseParser.pollTimeout(600);
+  assert(noiseParser.stats().timeouts == 0);
+
   parser.feed('$', 300, frame);
   parser.feed('{', 301, frame);
   parser.pollTimeout(600);

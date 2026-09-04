@@ -72,7 +72,7 @@ bool releaseAll() {
   // Close the software gate before any I2C operation so no later channel write
   // can re-enable an output after the global full-off command.
   writesEnabled.store(false);
-  outputsReleased.store(true);
+  outputsReleased.store(false);
   if (!ensureMutex() || xSemaphoreTake(i2cMutex, portMAX_DELAY) != pdTRUE) {
     ++releaseFailures;
     return false;
@@ -86,6 +86,7 @@ bool releaseAll() {
     }
   }
   xSemaphoreGive(i2cMutex);
+  outputsReleased.store(success);
   return success;
 }
 

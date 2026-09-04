@@ -110,7 +110,7 @@ void Controller::updateInput(const InputAxes& axes) {
     xSemaphoreGive(mutex_);
 }
 
-void Controller::stop(const char* reason) {
+void Controller::stop(const char* reason, bool restoreStandby) {
     begin();
     if (xSemaphoreTake(mutex_, portMAX_DELAY) != pdTRUE) {
         return;
@@ -119,7 +119,7 @@ void Controller::stop(const char* reason) {
     state_ = State{};
     xSemaphoreGive(mutex_);
 
-    if (wasActive && hexapod::Robot) {
+    if (wasActive && restoreStandby && hexapod::Robot) {
         hexapod::Robot->endSingleLegControl();
     }
 

@@ -23,6 +23,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <HardwareSerial.h>
+#include <atomic>
 
 #include "debug.h"
 #include "hexapod.h"
@@ -60,7 +61,7 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 
 // 串口配置
 // 静态变量
-static int8_t _mode = 0;  // 六足工作模式：0-运动模式 1-校准模式
+static std::atomic<int8_t> _mode(0);  // 六足工作模式：0-运动模式 1-校准模式
 static int16_t flag = 0;   // 六足运动模式: 见枚举hexapod:MovementMode
 static float test_angle = 0.;
 
@@ -72,17 +73,22 @@ static uart_protocol::Parser uartParser;
 static SemaphoreHandle_t uartTxMutex = nullptr;
 static QueueHandle_t uartFrameQueue = nullptr;
 static TaskHandle_t uartDispatchTaskHandle = nullptr;
-static volatile uint32_t uartQueueDrops = 0;
+static std::atomic<uint32_t> uartQueueDrops(0);
 static bool serialDispatchV2 = false;
 static uint16_t serialDispatchSequence = 0;
 static portMUX_TYPE uartSequenceMux = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t uartNextSequence = 1;
+static portMUX_TYPE uartStatsMux = portMUX_INITIALIZER_UNLOCKED;
+static uart_protocol::Stats uartStatsSnapshot{};
 
 // 电池监测相关变量
 static const unsigned long LOW_BATTERY_SERIAL_REMINDER_INTERVAL_MS = 10000; // 串口提醒重发间隔
 static constexpr const char* kLowBatteryUiMessage = "电量低，请关闭电源后进行充电！";
 static constexpr const char* kLowBatteryProtectCode = "LOW_BATTERY_PROTECT";
 static unsigned long lastLowBatterySerialNotifyMs = 0;
+static unsigned long lastServoReleaseAttemptMs = 0;
+static constexpr unsigned long kServoReleaseRetryIntervalMs = 1000;
+static constexpr size_t kMaxHttpRequestBodyBytes = 2048;
 
 // 实例
 AsyncWebServer server(80);
@@ -101,7 +107,9 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
 void normal_loop();
 void setting_loop();
 static void log_output(const char* log);
-CalibrationData parseCalibrationData(const String& jsonString);
+static bool parseCalibrationData(const String& jsonString,
+                                 CalibrationData& data,
+                                 String& errorMessage);
 void printWelcomeMessage();
 
 // AP 配置接口声明
@@ -146,6 +154,7 @@ static bool isLowBatteryLatched();
 static power::LowBatteryPolicy getEffectiveLowBatteryPolicy();
 static bool isMotionBlocked();
 static void handleLowBatteryLatchedOnce();
+static void retryServoReleaseIfNeeded();
 static void sendLowBatteryErrorToWebSocket(AsyncWebSocketClient *client);
 static void sendLowBatteryErrorToSerial();
 static void sendLowBatteryEventToSerial();
@@ -153,6 +162,8 @@ static void maybeRepeatLowBatteryEventToSerial();
 static uint16_t getLatestBatteryVoltageMv();
 static uint8_t estimateBatteryPercent(uint16_t voltageMv);
 static bool shouldUseMovingLowBatteryThreshold();
+static void publishUartStats();
+static uart_protocol::Stats getUartStatsSnapshot();
 
 struct AdvancedCommandResult {
   bool handled = false;
@@ -287,7 +298,7 @@ void setup() {
   // 初始化日志记录回调函数&机器人工作模式
   hexapod::initLogOutput(log_output, millis);
   if (hexapod::Robot) {
-    hexapod::Robot->init(_mode == 1);
+    hexapod::Robot->init(_mode.load() == 1);
   }
   motion::controller().begin();
   performance::controller().begin();
@@ -326,12 +337,13 @@ void setup() {
   buzzer::play(buzzer::Cue::Startup);
 
   Serial.print("Started, mode=");
-  Serial.println(_mode);
+  Serial.println(_mode.load());
 }
 
 void loop() {
   if (isLowBatteryLatched()) {
     handleLowBatteryLatchedOnce();
+    retryServoReleaseIfNeeded();
     maybeRepeatLowBatteryEventToSerial();
   }
 
@@ -343,17 +355,17 @@ void loop() {
 
   // 锁存事实始终保留；仅阻断策略强制回到运动模式。
   if (isMotionBlocked()) {
-    if (_mode != 0) {
-      _mode = 0;
+    if (_mode.load() != 0) {
+      _mode.store(0);
     }
     normal_loop();
     return;
   }
 
-  if (_mode == 0) {
+  if (_mode.load() == 0) {
     normal_loop();
   }
-  else if (_mode == 1) {
+  else if (_mode.load() == 1) {
     setting_loop();
   }
 }
@@ -377,10 +389,9 @@ void normal_loop() {
   auto t0 = millis();
 
   if (motionBlocked) {
-    if (hexapod::Robot) {
-      hexapod::Robot->processMovement(hexapod::MOVEMENT_STANDBY, REACT_DELAY);
-    }
-    motion::controller().onLoopTick(hexapod::MOVEMENT_STANDBY, REACT_DELAY);
+    // Both blocking policies freeze the motion pipeline. HoldAndLock must keep
+    // the last valid PWM exactly as-is; ReleasePwm has already closed the
+    // software output gate, so neither policy should keep writing standby.
   } else if (singleleg::controller().isActive()) {
     singleleg::controller().onLoopTick(REACT_DELAY);
   } else {
@@ -457,18 +468,41 @@ void handleCalibrationPage(AsyncWebServerRequest *request) {
 /* handleCalibrationData
 */
 void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  String body = String((char*)data).substring(0, len);
+  String *body = appendRequestBodyChunk(request, data, len, index, total);
+  if (!body) {
+    return;
+  }
 
   // 低电量锁存后：禁止校准动作（避免电压波动导致舵机异常）
+  if (isMotionBlocked()) {
+    clearRequestBodyChunk(request);
+    request->send(200, "application/json", String("{\"status\":\"error\",\"message\":\"") + kLowBatteryUiMessage + "\"}");
+    return;
+  }
+
+  CalibrationData calibrationData{};
+  String parseError;
+  const bool valid = parseCalibrationData(*body, calibrationData, parseError);
+  clearRequestBodyChunk(request);
+  if (!valid) {
+    StaticJsonDocument<192> response;
+    response["status"] = "error";
+    response["message"] = parseError;
+    String payload;
+    serializeJson(response, payload);
+    request->send(400, "application/json", payload);
+    return;
+  }
+  // Parsing and body assembly can overlap the battery task. Re-check the
+  // latched fact immediately before issuing any servo movement.
   if (isMotionBlocked()) {
     request->send(200, "application/json", String("{\"status\":\"error\",\"message\":\"") + kLowBatteryUiMessage + "\"}");
     return;
   }
 
-  CalibrationData calibrationData = parseCalibrationData(body);
   if (calibrationData.modeChanged) {
-    if ((calibrationData.operation == CALIBRATESTART) && (_mode == 0)) {
-      _mode = 1;
+    if ((calibrationData.operation == CALIBRATESTART) && (_mode.load() == 0)) {
+      _mode.store(1);
       LOG_INFO("Enter Calibration Mode.");
       if (hexapod::Robot) {
         hexapod::Robot->clearOffset();
@@ -476,31 +510,35 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
       }
 
       request->send(200, "application/json", "{\"status\":\"success\"}");
-    } else if ((calibrationData.operation == CALIBRATESTART_EXISTING) && (_mode == 0)) {
+    } else if ((calibrationData.operation == CALIBRATESTART_EXISTING) && (_mode.load() == 0)) {
       // 进入校准模式，但不清零现有偏移；舵机转到90°+offset
-      _mode = 1;
+      _mode.store(1);
       LOG_INFO("Enter Calibration Mode (use existing offsets).");
       if (hexapod::Robot) {
         hexapod::Robot->calibrationTestAllLeg(test_angle);
       }
 
       request->send(200, "application/json", "{\"status\":\"success\"}");
-    } else if ((calibrationData.operation == CALIBRATESAVE) && (_mode == 1)) {
+    } else if ((calibrationData.operation == CALIBRATESAVE) && (_mode.load() == 1)) {
       if (hexapod::Robot) {
         hexapod::Robot->calibrationSave();
-        hexapod::Robot->init(_mode == 1, true);
+        hexapod::Robot->init(_mode.load() == 1, true);
       }
-      _mode = 0;
+      _mode.store(0);
       LOG_INFO("Leave Calibration Mode.");
       request->send(200, "application/json", "{\"status\":\"success\",\"redirect\":\"/\"}");
+    } else {
+      request->send(409, "application/json", "{\"status\":\"error\",\"message\":\"Calibration mode transition rejected\"}");
     }
   } else {
-    if (_mode == 1) {
+    if (_mode.load() == 1) {
       if (hexapod::Robot) {
         hexapod::Robot->calibrationSet(calibrationData);
         hexapod::Robot->calibrationTest(calibrationData.legIndex, calibrationData.partIndex, test_angle);
       }
       request->send(200, "application/json", "{\"status\":\"success\"}");
+    } else {
+      request->send(409, "application/json", "{\"status\":\"error\",\"message\":\"Calibration mode is not active\"}");
     }
   }
 }
@@ -544,14 +582,14 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   JsonObject protocol = doc.createNestedObject("protocol");
   protocol["uartCurrent"] = 2;
   protocol["uartLegacy"] = true;
-  const uart_protocol::Stats& uartStats = uartParser.stats();
+  const uart_protocol::Stats uartStats = getUartStatsSnapshot();
   JsonObject uartDiagnostics = protocol.createNestedObject("diagnostics");
   uartDiagnostics["rxFrames"] = uartStats.rxFrames;
   uartDiagnostics["crcErrors"] = uartStats.crcErrors;
   uartDiagnostics["lengthErrors"] = uartStats.lengthErrors;
   uartDiagnostics["timeouts"] = uartStats.timeouts;
   uartDiagnostics["legacyFrames"] = uartStats.legacyFrames;
-  uartDiagnostics["queueDrops"] = uartQueueDrops;
+  uartDiagnostics["queueDrops"] = uartQueueDrops.load();
   JsonObject peripherals = doc.createNestedObject("peripherals");
   JsonObject buzzerCaps = peripherals.createNestedObject("buzzer");
   buzzerCaps["driverAvailable"] = true;
@@ -619,6 +657,13 @@ static String* appendRequestBodyChunk(AsyncWebServerRequest *request,
                                       size_t index,
                                       size_t total) {
   if (!request) {
+    return nullptr;
+  }
+  if (total > kMaxHttpRequestBodyBytes) {
+    if (index == 0) {
+      request->send(413, "application/json",
+                    "{\"status\":\"error\",\"message\":\"Request body too large\"}");
+    }
     return nullptr;
   }
 
@@ -731,8 +776,8 @@ void handleApConfigPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   }
   
   // 验证密码长度（WPA2 要求 8-63 字符，空密码表示开放网络）
-  if (password.length() > 0 && password.length() < 8) {
-    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Password must be at least 8 characters or empty for open network\"}");
+  if (password.length() > 0 && (password.length() < 8 || password.length() > 63)) {
+    request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Password must be 8-63 characters or empty for open network\"}");
     return;
   }
   
@@ -856,10 +901,14 @@ void handleApConfigReset(AsyncWebServerRequest *request) {
  * - POST: 允许更新已支持的 power/motion 设置
  */
 void handleSettingsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<256> json;
+  StaticJsonDocument<320> json;
   json["status"] = "success";
   JsonObject power = json.createNestedObject("power");
-  power["lowBatteryPolicy"] = power::policyToString(devsettings::getLowBatteryPolicy());
+  const power::LowBatteryPolicy configuredPolicy = devsettings::getLowBatteryPolicy();
+  const power::LowBatteryPolicy effectivePolicy = getEffectiveLowBatteryPolicy();
+  power["lowBatteryPolicy"] = power::policyToString(configuredPolicy);
+  power["effectiveLowBatteryPolicy"] = power::policyToString(effectivePolicy);
+  power["appliesAfterRestart"] = isLowBatteryLatched() && configuredPolicy != effectivePolicy;
   JsonObject motion = json.createNestedObject("motion");
   motion["buttonMode"] = motionButtonModeToString(devsettings::getMotionButtonMode());
   String response;
@@ -941,10 +990,14 @@ void handleSettingsPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
     }
   }
 
-  StaticJsonDocument<256> resp;
+  StaticJsonDocument<320> resp;
   resp["status"] = "success";
   JsonObject power = resp.createNestedObject("power");
-  power["lowBatteryPolicy"] = power::policyToString(devsettings::getLowBatteryPolicy());
+  const power::LowBatteryPolicy configuredPolicy = devsettings::getLowBatteryPolicy();
+  const power::LowBatteryPolicy effectivePolicy = getEffectiveLowBatteryPolicy();
+  power["lowBatteryPolicy"] = power::policyToString(configuredPolicy);
+  power["effectiveLowBatteryPolicy"] = power::policyToString(effectivePolicy);
+  power["appliesAfterRestart"] = isLowBatteryLatched() && configuredPolicy != effectivePolicy;
   JsonObject motion = resp.createNestedObject("motion");
   motion["buttonMode"] = motionButtonModeToString(devsettings::getMotionButtonMode());
   String response;
@@ -964,14 +1017,19 @@ static BasicCommandResult handleBasicControlCommand(JsonVariantConst json) {
     return result;
   }
 
-  const int16_t movementMode = hasMovement ? json["movementMode"].as<int16_t>() : 0;
+  const int movementMode = hasMovement ? json["movementMode"].as<int>() : 0;
   const int speedLevel = hasSpeedLevel ? json["speedLevel"].as<int>() : 0;
-  if ((hasMovement && (!json["movementMode"].is<int>() || movementMode < 0)) ||
+  const int gaitMode = hasGait ? json["gaitMode"].as<int>() : 0;
+  const uint16_t supportedMovementMask =
+    static_cast<uint16_t>((1U << hexapod::MOVEMENT_TOTAL) - 1U);
+  if ((hasMovement && (!json["movementMode"].is<int>() || movementMode < 0 ||
+                       movementMode > UINT16_MAX ||
+                       (static_cast<uint16_t>(movementMode) & ~supportedMovementMask) != 0)) ||
       (hasSpeed && !json["speed"].is<float>()) ||
       (hasSpeedLevel && (!json["speedLevel"].is<int>() ||
                          speedLevel < hexapod::SPEED_SLOWEST ||
                          speedLevel > hexapod::SPEED_FAST)) ||
-      (hasGait && !json["gaitMode"].is<int>())) {
+      (hasGait && (!json["gaitMode"].is<int>() || gaitMode < 0 || gaitMode >= 4))) {
     result.message = "Invalid basic control value";
     return result;
   }
@@ -998,7 +1056,7 @@ static BasicCommandResult handleBasicControlCommand(JsonVariantConst json) {
     hexapod::Robot->setMovementSpeedLevel(static_cast<hexapod::SpeedLevel>(speedLevel));
   }
   if (hasGait && hexapod::Robot) {
-    hexapod::Robot->setGaitMode(json["gaitMode"].as<int>());
+    hexapod::Robot->setGaitMode(gaitMode);
   }
   result.success = true;
   result.message = "Command applied";
@@ -1019,11 +1077,9 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
       break;
     case WS_EVT_DISCONNECT:
       Serial.printf("WebSocket client #%u disconnected\n", client->id());
-      // 使用短超时时间获取锁
-      if (xSemaphoreTake(flagMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        flag = 0;  
-        xSemaphoreGive(flagMutex);
-      }
+      clearMovementFlag();
+      motion::controller().clear("[Motion] websocket disconnected");
+      performance::controller().clear("[Performance] websocket disconnected");
       singleleg::controller().stop("[SingleLeg] websocket disconnected");
       break;
     case WS_EVT_DATA:
@@ -1051,7 +1107,7 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
         if (isMotionBlocked()) {
           motion::controller().clear("[Power] low battery, command ignored");
           performance::controller().clear("[Power] low battery, command ignored");
-          singleleg::controller().stop("[Power] low battery, single leg ignored");
+          singleleg::controller().stop("[Power] low battery, single leg ignored", false);
           clearMovementFlag();
           sendLowBatteryErrorToWebSocket(client);
           return;
@@ -1093,7 +1149,12 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
       }
       break;
     case WS_EVT_PONG:
+      break;
     case WS_EVT_ERROR:
+      clearMovementFlag();
+      motion::controller().clear("[Motion] websocket error");
+      performance::controller().clear("[Performance] websocket error");
+      singleleg::controller().stop("[SingleLeg] websocket error");
       break;
     default:
       break;
@@ -1102,31 +1163,59 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
 
 /* 解析舵机校准数据
 */
-CalibrationData parseCalibrationData(const String& jsonString) {
+static bool parseCalibrationData(const String& jsonString,
+                                 CalibrationData& data,
+                                 String& errorMessage) {
   // {"legIndex": 0, "partIndex": 0, "offset": 0}
-
-  CalibrationData data;
-
   StaticJsonDocument<200> doc;
-  DeserializationError error = deserializeJson(doc, jsonString);
+  const DeserializationError error = deserializeJson(doc, jsonString);
 
-  if (error) {
-      Serial.print(F("deserializeJson() failed: "));
+  if (error || !doc.is<JsonObject>()) {
+    Serial.print(F("deserializeJson() failed: "));
+    if (error) {
       Serial.println(error.f_str());
-      return data; // 返回默认数据
+    } else {
+      Serial.println("root is not an object");
+    }
+    errorMessage = "Invalid calibration JSON";
+    return false;
   }
 
-  // 赋值给结构体
-  data.modeChanged = doc["modeChanged"];
-  if (!data.modeChanged) {
-    data.legIndex = doc["legIndex"];
-    data.partIndex = doc["partIndex"];
-    data.offset = doc["offset"];
-  } else {
+  if (!doc["modeChanged"].is<bool>()) {
+    errorMessage = "modeChanged must be a boolean";
+    return false;
+  }
+
+  data.modeChanged = doc["modeChanged"].as<bool>();
+  if (data.modeChanged) {
+    if (!doc["operation"].is<const char*>()) {
+      errorMessage = "operation must be a string";
+      return false;
+    }
     data.operation = doc["operation"].as<String>();
+    if (data.operation != CALIBRATESTART &&
+        data.operation != CALIBRATESTART_EXISTING &&
+        data.operation != CALIBRATESAVE) {
+      errorMessage = "Unsupported calibration operation";
+      return false;
+    }
+  } else {
+    if (!doc["legIndex"].is<int>() || !doc["partIndex"].is<int>() ||
+        !doc["offset"].is<int>()) {
+      errorMessage = "legIndex, partIndex and offset must be integers";
+      return false;
+    }
+    data.legIndex = doc["legIndex"].as<int>();
+    data.partIndex = doc["partIndex"].as<int>();
+    data.offset = doc["offset"].as<int>();
+    if (data.legIndex < 0 || data.legIndex >= board::kLegCount ||
+        data.partIndex < 0 || data.partIndex >= 3) {
+      errorMessage = "Calibration joint index out of range";
+      return false;
+    }
   }
 
-  return data;
+  return true;
 }
 
 // 电池监测任务
@@ -1256,7 +1345,7 @@ static uint16_t getLatestBatteryVoltageMv() {
 
 static bool shouldUseMovingLowBatteryThreshold() {
   // 校准模式下机器人不应按“运动中压降”放宽阈值，仍按待机/静止逻辑处理。
-  if (_mode == 1) {
+  if (_mode.load() == 1) {
     return false;
   }
 
@@ -1346,11 +1435,12 @@ static void handleLowBatteryLatchedOnce() {
   if (isMotionBlocked()) {
     motion::controller().clear("[Power] low battery, force standby");
     performance::controller().clear("[Power] low battery, clear performance");
-    singleleg::controller().stop("[Power] low battery, clear single leg");
+    singleleg::controller().stop("[Power] low battery, clear single leg", false);
     clearMovementFlag();
   }
   if (power::policyReleasesPwm(getEffectiveLowBatteryPolicy())) {
     const bool released = servo_output::releaseAll();
+    lastServoReleaseAttemptMs = millis();
     Serial.printf("[Power] Servo PWM release requested: %s.\n", released ? "ok" : "failed");
   }
 
@@ -1374,6 +1464,21 @@ static void handleLowBatteryLatchedOnce() {
   Serial.printf("[Power] Low battery latched: policy=%s, motionBlocked=%s.\n",
                 power::policyToString(getEffectiveLowBatteryPolicy()),
                 isMotionBlocked() ? "true" : "false");
+}
+
+static void retryServoReleaseIfNeeded() {
+  if (!power::policyReleasesPwm(getEffectiveLowBatteryPolicy()) ||
+      servo_output::state().released) {
+    return;
+  }
+  const unsigned long now = millis();
+  if (lastServoReleaseAttemptMs != 0 &&
+      now - lastServoReleaseAttemptMs < kServoReleaseRetryIntervalMs) {
+    return;
+  }
+  lastServoReleaseAttemptMs = now;
+  const bool released = servo_output::releaseAll();
+  Serial.printf("[Power] Servo PWM release retry: %s.\n", released ? "ok" : "failed");
 }
 
 static const char* motionButtonModeToString(devsettings::MotionButtonMode mode) {
@@ -1770,7 +1875,9 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
 /* 解析串口运动指令
 */
 void parseSerialMovementCommand(const String& jsonString) {
-  StaticJsonDocument<512> json;
+  // The protocol payload limit is 512 bytes; leave room for ArduinoJson's
+  // object/array metadata and duplicated strings.
+  StaticJsonDocument<1024> json;
   DeserializationError err = deserializeJson(json, jsonString);
   
   if (err) {
@@ -1785,7 +1892,7 @@ void parseSerialMovementCommand(const String& jsonString) {
   if (isMotionBlocked()) {
     motion::controller().clear("[Power] low battery, command ignored");
     performance::controller().clear("[Power] low battery, command ignored");
-    singleleg::controller().stop("[Power] low battery, single leg ignored");
+    singleleg::controller().stop("[Power] low battery, single leg ignored", false);
     clearMovementFlag();
     sendLowBatteryErrorToSerial();
     return;
@@ -1835,11 +1942,12 @@ void SerialCommandTask(void *pvParameters) {
       }
 
       if (xQueueSend(uartFrameQueue, &frame, 0) != pdTRUE) {
-        ++uartQueueDrops;
+        uartQueueDrops.fetch_add(1);
       }
     }
 
     uartParser.pollTimeout(millis());
+    publishUartStats();
     vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
@@ -1894,13 +2002,34 @@ void UartDispatchTask(void *pvParameters) {
                frame.messageType == uart_protocol::MessageType::Request) {
       parseSerialMovementCommand(reinterpret_cast<const char*>(frame.payload));
     } else if (frame.messageType == uart_protocol::MessageType::Heartbeat) {
-      sendSerialResponse("{\"status\":\"success\"}");
+      StaticJsonDocument<128> heartbeat;
+      heartbeat["status"] = "success";
+      JsonObject heartbeatPower = heartbeat.createNestedObject("power");
+      heartbeatPower["lowBatteryLatched"] = isLowBatteryLatched();
+      String response;
+      serializeJson(heartbeat, response);
+      sendSerialResponse(response);
     } else if (frame.messageType == uart_protocol::MessageType::Event) {
       handleV2Event(frame);
     }
     serialDispatchV2 = false;
     serialDispatchSequence = 0;
   }
+}
+
+static void publishUartStats() {
+  const uart_protocol::Stats snapshot = uartParser.stats();
+  portENTER_CRITICAL(&uartStatsMux);
+  uartStatsSnapshot = snapshot;
+  portEXIT_CRITICAL(&uartStatsMux);
+}
+
+static uart_protocol::Stats getUartStatsSnapshot() {
+  uart_protocol::Stats snapshot{};
+  portENTER_CRITICAL(&uartStatsMux);
+  snapshot = uartStatsSnapshot;
+  portEXIT_CRITICAL(&uartStatsMux);
+  return snapshot;
 }
 
 /* 发送串口响应
