@@ -1211,6 +1211,7 @@
       const motionToggle = document.getElementById('motionButtonModeToggle');
       if (motionToggle) motionToggle.checked = motionButtonMode === 'single_cycle';
       updateMotionButtonModeStateText();
+      if (window.CameraUi) window.CameraUi.setMotionButtonMode(motionButtonMode);
     }
 
     function showOtherSettingsStatus(message, type) {
@@ -1554,7 +1555,8 @@
           sendSpeed,
           stop: sendStopCommand,
           guardLowBattery,
-          getLang: () => currentLang
+          getLang: () => currentLang,
+          getMotionButtonMode: () => motionButtonMode
         });
       }
       initRobotInputWebSocket();
