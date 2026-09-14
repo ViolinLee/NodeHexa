@@ -138,7 +138,7 @@
     stream.addEventListener('load', () => {
       if (!active || sessionId !== streamSessionId || stream !== document.getElementById('cameraStream')) return;
       reconnectDelayMs = 1000;
-      setStatus('图传已连接');
+      setStatus(state.binding === 'verified' ? '图传已连接 · 设备已绑定' : '图传已连接 · 未验证绑定（旧固件）');
     });
     stream.addEventListener('error', () => {
       if (!active || sessionId !== streamSessionId || stream !== document.getElementById('cameraStream')) return;
@@ -217,13 +217,24 @@
   }
 
   function applyCaps(caps) {
+    if (api && api.acceptRobotIdentity && !api.acceptRobotIdentity(caps)) {
+      state.available = false;
+      clearReconnectTimer();
+      closeStream();
+      if (active) {
+        active = false;
+        document.body.classList.remove('camera-mode');
+      }
+      return;
+    }
     const camera = caps && caps.peripherals && caps.peripherals.camera;
     const previousStreamUrl = state.streamUrl;
     state = {
       available: !!(camera && camera.available),
       streamUrl: camera && camera.streamUrl ? camera.streamUrl : '',
       activeProfile: camera && camera.activeProfile ? camera.activeProfile : 'qvga',
-      profilePending: !!(camera && camera.profilePending)
+      profilePending: !!(camera && camera.profilePending),
+      binding: camera && camera.binding || 'legacy_unverified'
     };
     const entry = document.getElementById('cameraEntry');
     if (entry) entry.hidden = !state.available;

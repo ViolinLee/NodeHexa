@@ -24,6 +24,8 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #include <SPIFFS.h>
 #include <HardwareSerial.h>
 #include <atomic>
+#include <esp_wifi.h>
+#include <esp_system.h>
 
 #include "debug.h"
 #include "hexapod.h"
@@ -80,6 +82,10 @@ static portMUX_TYPE uartSequenceMux = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t uartNextSequence = 1;
 static portMUX_TYPE uartStatsMux = portMUX_INITIALIZER_UNLOCKED;
 static uart_protocol::Stats uartStatsSnapshot{};
+// Immutable after setup; identifies this AP and this boot's camera session.
+static char robotIdentity[24]{};
+static char robotApBssid[18]{};
+static char cameraSession[33]{};
 
 // 电池监测相关变量
 static const unsigned long LOW_BATTERY_SERIAL_REMINDER_INTERVAL_MS = 10000; // 串口提醒重发间隔
@@ -142,7 +148,7 @@ static bool sendV2Message(uart_protocol::MessageType type,
                           uint16_t sequence,
                           const String& message);
 static uint16_t nextUartSequence();
-static bool sendCameraProvision(const String& ssid, const String& password);
+static bool sendCameraProvision();
 static bool sendCameraProfileRequest(const char* profile);
 static void handleV2Event(const uart_protocol::Frame& frame);
 void clearMovementFlag();
@@ -231,6 +237,13 @@ void setup() {
 
   // 初始化WiFi（动态 AP 配置）
   apconfig::init();
+  uint8_t apMac[6]{};
+  if (esp_wifi_get_mac(WIFI_IF_AP, apMac) == ESP_OK) {
+    snprintf(robotIdentity,sizeof(robotIdentity),"%02x%02x%02x%02x%02x%02x",apMac[0],apMac[1],apMac[2],apMac[3],apMac[4],apMac[5]);
+    snprintf(robotApBssid,sizeof(robotApBssid),"%02x:%02x:%02x:%02x:%02x:%02x",apMac[0],apMac[1],apMac[2],apMac[3],apMac[4],apMac[5]);
+  }
+  for (int i=0;i<4;++i)
+    snprintf(cameraSession+i*8,9,"%08lx",static_cast<unsigned long>(esp_random()));
   apconfig::printCurrentAPInfo(Serial);
 
   // 读取设备设置（NVS）
@@ -570,9 +583,10 @@ void handleCalibrationGet(AsyncWebServerRequest *request) {
 
 /* UI 能力探测：返回机型、电源与表演能力 */
 void handleCapsGet(AsyncWebServerRequest *request) {
-  StaticJsonDocument<2048> doc;
+  DynamicJsonDocument doc(3072);
   JsonObject robot = doc.createNestedObject("robot");
   robot["type"] = board::kRobotType;
+  robot["id"] = robotIdentity;
   robot["legCount"] = board::kLegCount;
   robot["hardwareFamily"] = board::kHardwareFamily;
   robot["hardwareRevision"] = board::kHardwareRevision;
@@ -606,12 +620,18 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   if (external.firmwareVersion[0]) externalCaps["firmware"] = external.firmwareVersion;
   const camera_link::Snapshot camera = camera_link::snapshot();
   JsonObject cameraCaps = peripherals.createNestedObject("camera");
-  const bool cameraAvailable = camera.available && external.online &&
+  const bool cameraAvailable = camera.available && millis() - camera.lastStatusMs < 6000 && external.online &&
                                external.type == external_device::Type::Camera;
   cameraCaps["available"] = cameraAvailable;
+  cameraCaps["binding"] = camera.bindingRequired ? (camera.bindingVerified ? "verified" : "pending") : "legacy_unverified";
+  cameraCaps["cameraId"] = camera.cameraId;
+  cameraCaps["wifiPhase"] = camera.wifiPhase;
+  cameraCaps["wifiError"] = camera.wifiError;
+  cameraCaps["provisionResult"] = camera.provisionResult;
   if (cameraAvailable) {
-    char streamUrl[64];
-    snprintf(streamUrl, sizeof(streamUrl), "http://%s:%u/stream", camera.ip, camera.streamPort);
+    char streamUrl[160];
+    snprintf(streamUrl, sizeof(streamUrl), "http://%s:%u/stream%s%s", camera.ip, camera.streamPort,
+             camera.bindingVerified ? "?session=" : "", camera.bindingVerified ? camera.streamToken : "");
     cameraCaps["streamUrl"] = streamUrl;
   }
   JsonArray profiles = cameraCaps.createNestedArray("profiles");
@@ -785,9 +805,8 @@ void handleApConfigPostBody(AsyncWebServerRequest *request, uint8_t *data, size_
   bool success = apconfig::setNewConfig(ssid, password);
   
   if (success) {
-    // Best-effort eventual consistency: the camera stores these credentials
-    // before the main board reboots. A missed update is retried on next HELLO.
-    sendCameraProvision(ssid, password);
+    // Provision only the running AP on camera HELLO. After reboot this becomes
+    // the new configuration (or the rolled-back one), never a future network.
     StaticJsonDocument<256> response;
     response["status"] = "success";
     response["message"] = "AP configuration updated, device will reboot in 3 seconds";
@@ -1103,6 +1122,12 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
           return;
         }
 
+        // New pages attach the expected robot identity. Old clients remain compatible.
+        if (json.containsKey("robotId") &&
+            (!json["robotId"].is<const char*>() || strcmp(json["robotId"].as<const char*>(),robotIdentity))) {
+          client->text("{\"status\":\"error\",\"code\":\"ROBOT_ID_MISMATCH\",\"message\":\"Robot changed; reconnect and confirm\"}");
+          return;
+        }
         // 低电量锁存后：屏蔽所有控制指令（包括运动模式/速度/步态/序列）
         if (isMotionBlocked()) {
           motion::controller().clear("[Power] low battery, command ignored");
@@ -1457,8 +1482,11 @@ static void handleLowBatteryLatchedOnce() {
   String payload;
   serializeJson(doc, payload);
 
-  // 主动广播给所有 WebSocket 客户端，串口单独走可重发提醒逻辑
-  wsRoverCmd.textAll(payload);
+  // Avoid allocating and immediately deleting a broadcast buffer when no
+  // WebSocket client exists (the bundled server's old cleanup loop is unsafe).
+  if (wsRoverCmd.count() > 0) {
+    wsRoverCmd.textAll(payload);
+  }
   sendLowBatteryEventToSerial();
 
   Serial.printf("[Power] Low battery latched: policy=%s, motionBlocked=%s.\n",
@@ -1524,7 +1552,7 @@ static void handleSequenceComplete(uint32_t sequenceId) {
   serializeJson(doc, payload);
 
   sendSerialResponse(payload);
-  wsRoverCmd.textAll(payload);
+  if (wsRoverCmd.count() > 0) wsRoverCmd.textAll(payload);
   Serial.printf("[MotionController] Sequence %u completed\n", sequenceId);
   performance::controller().onSequenceComplete(sequenceId);
 }
@@ -1972,8 +2000,8 @@ void UartDispatchTask(void *pvParameters) {
 
     if (frame.format == uart_protocol::Format::V2 &&
         frame.messageType == uart_protocol::MessageType::Hello) {
-      StaticJsonDocument<384> hello;
-      StaticJsonDocument<384> peerHello;
+      StaticJsonDocument<512> hello;
+      StaticJsonDocument<768> peerHello;
       const DeserializationError helloError = deserializeJson(peerHello, frame.payload, frame.payloadLength);
       const char* peerDevice = helloError ? "generic_host" : (peerHello["device"] | "generic_host");
       external_device::observeHello(peerDevice,
@@ -1991,12 +2019,18 @@ void UartDispatchTask(void *pvParameters) {
       capabilities.add("control");
       capabilities.add("power_event");
       capabilities.add("camera_provision");
+      capabilities.add("camera_binding_v1");
       String response;
       serializeJson(hello, response);
       sendSerialResponse(response);
       if (strcmp(peerDevice, "camera") == 0) {
-        const apconfig::APConfig cfg = apconfig::getConfig();
-        sendCameraProvision(cfg.ssid, cfg.password);
+        bool supportsBinding = false;
+        for (JsonVariantConst capability : peerHello["capabilities"].as<JsonArrayConst>())
+          if (capability.is<const char*>() && strcmp(capability.as<const char*>(),"camera_binding_v1") == 0)
+            supportsBinding = true;
+        camera_link::expectBinding(supportsBinding,peerHello["deviceId"] | "",
+                                   robotIdentity,robotApBssid,cameraSession);
+        sendCameraProvision();
       }
     } else if (frame.format == uart_protocol::Format::Legacy ||
                frame.messageType == uart_protocol::MessageType::Request) {
@@ -2011,6 +2045,10 @@ void UartDispatchTask(void *pvParameters) {
       sendSerialResponse(response);
     } else if (frame.messageType == uart_protocol::MessageType::Event) {
       handleV2Event(frame);
+    } else if (frame.messageType == uart_protocol::MessageType::Response) {
+      StaticJsonDocument<256> response;
+      if (!deserializeJson(response,frame.payload,frame.payloadLength))
+        camera_link::provisionResponse(frame.sequence,response["status"] | "error");
     }
     serialDispatchV2 = false;
     serialDispatchSequence = 0;
@@ -2081,19 +2119,33 @@ static uint16_t nextUartSequence() {
   return sequence;
 }
 
-static bool sendCameraProvision(const String& ssid, const String& password) {
+static bool sendCameraProvision() {
   const external_device::Snapshot external = external_device::snapshot();
   if (!external.online || external.type != external_device::Type::Camera ||
       external.protocolVersion != 2) return false;
-  StaticJsonDocument<256> doc;
+  wifi_config_t runtime{};
+  if (esp_wifi_get_config(WIFI_IF_AP,&runtime) != ESP_OK) return false;
+  char ssid[33]{}, password[65]{};
+  memcpy(ssid,runtime.ap.ssid,sizeof(runtime.ap.ssid));
+  memcpy(password,runtime.ap.password,sizeof(runtime.ap.password));
+  StaticJsonDocument<640> doc;
   JsonObject provision = doc.createNestedObject("cameraProvision");
   provision["ssid"] = ssid;
   provision["password"] = password;
   provision["streamPort"] = 81;
+  if (camera_link::snapshot().bindingRequired) {
+    if (!robotIdentity[0] || !robotApBssid[0]) return false;
+    provision["bssid"] = robotApBssid;
+    provision["robotId"] = robotIdentity;
+    provision["session"] = cameraSession;
+  }
   String payload;
   serializeJson(doc, payload);
+  if (doc.overflowed() || payload.length() > uart_protocol::kMaxPayloadLength) return false;
+  const uint16_t sequence = nextUartSequence();
+  camera_link::provisionSent(sequence);
   return sendV2Message(uart_protocol::MessageType::Request, 0x02,
-                       nextUartSequence(), payload);
+                       sequence, payload);
 }
 
 static bool sendCameraProfileRequest(const char* profile) {
@@ -2108,11 +2160,15 @@ static bool sendCameraProfileRequest(const char* profile) {
 }
 
 static void handleV2Event(const uart_protocol::Frame& frame) {
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<1280> doc;
   if (deserializeJson(doc, frame.payload, frame.payloadLength)) return;
   const char* event = doc["event"] | "";
   if (strcmp(event, "cameraStatus") != 0) return;
-  camera_link::updateStatus(doc["online"] | false,
+  const bool bindingOk = camera_link::checkBinding(doc["bound"] | false,
+                            doc["cameraId"] | "", doc["robotId"] | "",
+                            doc["bssid"] | "", doc["session"] | "",
+                            doc["streamToken"] | "", doc["wifiPhase"] | "", doc["wifiError"] | 0);
+  camera_link::updateStatus(bindingOk && (doc["online"] | false),
                             doc["ip"] | "",
                             doc["streamPort"] | 81,
                             doc["framesize"] | "qvga",
