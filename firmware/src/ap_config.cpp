@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <Preferences.h>
 #include <esp_err.h>
+#include <esp_mac.h>
 #include <esp_wifi.h>
 
 namespace apconfig {
@@ -44,12 +45,32 @@ bool isValidPassword(const String& password) {
          (password.length() >= 8 && password.length() <= 63);
 }
 
-String generateDefaultSSID() {
-  uint64_t mac = ESP.getEfuseMac();
-  uint16_t suffix = (uint16_t)(mac & 0xFFFFull);
+String formatDefaultSSID(const uint8_t mac[6]) {
+  const uint16_t suffix = (static_cast<uint16_t>(mac[4]) << 8) | mac[5];
   char buf[32];
   snprintf(buf, sizeof(buf), "%s-%04X", kDefaultSsidBase, suffix);
   return String(buf);
+}
+
+String generateDefaultSSID() {
+  uint8_t mac[6]{};
+  if (esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP) != ESP_OK &&
+      esp_efuse_mac_get_default(mac) != ESP_OK) {
+    return String(kDefaultSsidBase);
+  }
+  return formatDefaultSSID(mac);
+}
+
+String generateLegacyDefaultSSID() {
+  uint8_t mac[6]{};
+  if (esp_efuse_mac_get_default(mac) != ESP_OK) {
+    return String();
+  }
+
+  // The old implementation copied these bytes into a little-endian uint64_t
+  // and used its low 16 bits, producing e.g. 8C:94 -> "948C".
+  const uint8_t legacyBytes[6] = {0, 0, 0, 0, mac[1], mac[0]};
+  return formatDefaultSSID(legacyBytes);
 }
 
 APConfig readConfig() {
@@ -223,6 +244,15 @@ void rebootTask(void* p) {
 void init() {
   // 启动 AP
   APConfig cfg = readConfig();
+  const String legacyDefaultSsid = generateLegacyDefaultSSID();
+  if (legacyDefaultSsid.length() > 0 && cfg.ssid == legacyDefaultSsid) {
+    cfg.ssid = generateDefaultSSID();
+    if (cfg.prevSsid == legacyDefaultSsid) {
+      cfg.prevSsid = cfg.ssid;
+    }
+    writeConfig(cfg);
+    Serial.printf("AP Config: Migrated legacy generated SSID to %s\n", cfg.ssid.c_str());
+  }
   if (!isValidSSID(cfg.ssid) || !isValidPassword(cfg.password)) {
     Serial.printf("AP Config: Invalid stored configuration; using defaults (SSID length=%u, password length=%u)\n",
                   static_cast<unsigned>(cfg.ssid.length()),
