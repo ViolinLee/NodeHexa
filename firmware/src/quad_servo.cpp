@@ -3,6 +3,7 @@
 #include "quad_servo.h"
 #include "debug.h"
 #include "pwm.h"
+#include "servo_output.h"
 
 namespace quadruped {
 
@@ -25,6 +26,7 @@ namespace quadruped {
 
             pwm.begin();
             pwm.setPWMFreq(kFrequency);
+            servo_output::registerController(&pwm);
             pwmInited = true;
         }
 
@@ -81,7 +83,7 @@ namespace quadruped {
         else if (us < kServoMin)
             us = kServoMin;
 
-        pwm.setPWM(idx, 0, us / kTickUs);
+        servo_output::write(pwm, idx, 0, us / kTickUs);
         LOG_DEBUG("Quad setAngle(%.2f, %d)", angle, us);
     }
 
@@ -92,4 +94,3 @@ namespace quadruped {
 } // namespace quadruped
 
 #endif // ROBOT_MODEL_NODEQUADMINI
-

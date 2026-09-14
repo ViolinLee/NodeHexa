@@ -15,7 +15,7 @@
 ### 使用方法
 
 ```bash
-# 构建所有环境（六足 + 四足）
+# 构建全部通用包与 V2 包
 python scripts/release.py
 
 # 只构建六足机器人固件
@@ -26,18 +26,23 @@ python scripts/release.py -e nodequadmini
 
 # 构建多个指定环境
 python scripts/release.py -e nodemcu-32s -e nodequadmini
+
+# 构建新板发布包
+python scripts/release.py -e nodehexa-v2 -e nodequadmini-v2
 ```
 
 ### 支持的环境
 
 - `nodemcu-32s` - NodeHexa (六足机器人)
 - `nodequadmini` - NodeQuadMini (四足机器人)
+- `nodehexa-v2` - NodeHexaV2（`hardwareRevision=2`）
+- `nodequadmini-v2` - NodeQuadMini V2（`hardwareRevision=2`）
 
 ### 功能
 
-1. 从 `platformio.ini` 读取各环境的版本号
+1. 从 `platformio.ini` 读取各环境的版本号，并在发布前校验四个环境版本一致
 2. 构建指定环境的固件
-3. 为每个环境创建独立的发布包（ZIP）
+3. 为每个环境创建独立的发布包（ZIP），包内 `version.json` 记录硬件范围和 UART 兼容信息
 4. 上传到 GitHub Release
 
 ### 配置

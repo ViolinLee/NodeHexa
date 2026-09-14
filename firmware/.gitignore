@@ -9,3 +9,6 @@ scripts/.env
 
 # 发布包目录
 release/
+
+# 测试目录
+test/

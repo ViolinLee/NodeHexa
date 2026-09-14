@@ -11,10 +11,14 @@ import sys
 import json
 import zipfile
 import subprocess
-import requests
 from pathlib import Path
 from datetime import datetime
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv():
+        """允许未安装 python-dotenv 时继续使用系统环境变量。"""
 
 # 加载环境变量
 load_dotenv()
@@ -30,13 +34,31 @@ SUPPORTED_ENVS = {
     "nodemcu-32s": {
         "name": "NodeHexa (六足机器人)",
         "description": "ESP32 (NodeMCU-32S) - 六足机器人固件",
-        "package_name": "NodeHexa"
+        "package_name": "NodeHexa",
+        "hardware_profile": "legacy_or_unknown",
+        "supported_hardware": ["unknown", "1"],
     },
     "nodequadmini": {
         "name": "NodeQuadMini (四足机器人)",
         "description": "ESP32 (NodeMCU-32S) - 四足机器人固件",
-        "package_name": "NodeQuadMini"
-    }
+        "package_name": "NodeQuadMini",
+        "hardware_profile": "legacy_or_unknown",
+        "supported_hardware": ["unknown", "1"],
+    },
+    "nodehexa-v2": {
+        "name": "NodeHexaV2 (六足机器人)",
+        "description": "ESP32 (NodeMCU-32S) - NodeHexaV2 六足机器人固件",
+        "package_name": "NodeHexaV2",
+        "hardware_profile": "v2",
+        "supported_hardware": ["2"],
+    },
+    "nodequadmini-v2": {
+        "name": "NodeQuadMini V2 (四足机器人)",
+        "description": "ESP32 (NodeMCU-32S) - NodeQuadMini V2 四足机器人固件",
+        "package_name": "NodeQuadMini-V2",
+        "hardware_profile": "v2",
+        "supported_hardware": ["2"],
+    },
 }
 RELEASE_DIR = PROJECT_ROOT / "release"
 BIN_FILES = ["bootloader.bin", "firmware.bin", "partitions.bin", "spiffs.bin"]
@@ -51,9 +73,14 @@ class ReleaseManager:
         self.platformio_cmd = None
         self.release_packages = []  # 存储每个环境的发布包信息
         
-    def get_version_from_platformio(self, env_name):
+    def get_version_from_platformio(self, env_name, visited=None):
         """从 platformio.ini 中读取指定环境的版本号"""
         try:
+            visited = set() if visited is None else visited
+            if env_name in visited:
+                print(f"❌ platformio.ini 环境继承形成循环: {env_name}")
+                return None
+            visited.add(env_name)
             platformio_ini_path = PROJECT_ROOT / 'platformio.ini'
             with open(platformio_ini_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -83,12 +110,28 @@ class ReleaseManager:
                 version = version_match.group(1)
                 print(f"✓ [{env_name}] 找到版本号: {version}")
                 return version
-            else:
-                print(f"❌ 未在 platformio.ini 中找到环境 {env_name} 的 FIRMWARE_VERSION")
-                return None
+            extends_match = re.search(r'^\s*extends\s*=\s*env:([^\s]+)\s*$', env_block,
+                                      re.MULTILINE)
+            if extends_match:
+                return self.get_version_from_platformio(extends_match.group(1), visited)
+            print(f"❌ 未在 platformio.ini 中找到环境 {env_name} 的 FIRMWARE_VERSION")
+            return None
         except FileNotFoundError:
             print(f"❌ 未找到 platformio.ini 文件: {platformio_ini_path}")
             return None
+
+    def validate_versions(self):
+        """发布矩阵中的所有机器人固件必须使用同一 SemVer。"""
+        versions = {env: self.get_version_from_platformio(env) for env in SUPPORTED_ENVS}
+        if any(version is None for version in versions.values()):
+            return False
+        unique_versions = set(versions.values())
+        if len(unique_versions) != 1:
+            details = ", ".join(f"{env}={version}" for env, version in versions.items())
+            print(f"❌ 发布环境版本不一致: {details}")
+            return False
+        print(f"✓ 发布矩阵版本一致: {unique_versions.pop()}")
+        return True
     
     def check_platformio(self):
         """检查 PlatformIO 是否安装"""
@@ -174,6 +217,7 @@ class ReleaseManager:
 - **构建时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 - **目标板**: ESP32 (NodeMCU-32S)
 - **机器人类型**: {env_info['description']}
+- **硬件配置**: {env_info['hardware_profile']}
 
 ## 文件说明
 本固件包包含以下文件：
@@ -280,6 +324,10 @@ class ReleaseManager:
                 "build_time": datetime.now().isoformat(),
                 "build_env": env_name,
                 "robot_type": env_info['description'],
+                "hardwareProfile": env_info['hardware_profile'],
+                "supportedHardware": env_info['supported_hardware'],
+                "uartProtocolVersion": 2,
+                "legacyUartSupported": True,
                 "files": BIN_FILES
             }
             zipf.writestr('version.json', json.dumps(version_info, indent=2))
@@ -325,6 +373,11 @@ class ReleaseManager:
     
     def create_github_release(self):
         """创建 GitHub Release 并上传所有发布包"""
+        try:
+            import requests
+        except ImportError:
+            print("❌ 发布到 GitHub 需要安装 requests: python -m pip install requests")
+            return False
         github_token = os.getenv('GITHUB_TOKEN')
         if not github_token:
             print("❌ 请设置环境变量 GITHUB_TOKEN")
@@ -445,6 +498,9 @@ class ReleaseManager:
         print(f"🚀 开始 {PROJECT_NAME} 固件发布流程")
         print(f"📋 将构建以下环境: {', '.join(self.build_envs)}")
         print("=" * 50)
+
+        if not self.validate_versions():
+            return False
         
         # 1. 检查环境
         if not self.check_platformio():
@@ -512,6 +568,7 @@ def main():
     python release.py --all              # 构建所有环境
     python release.py -e nodemcu-32s     # 只构建六足机器人固件
     python release.py -e nodequadmini    # 只构建四足机器人固件
+    python release.py -e nodehexa-v2     # 只构建 NodeHexaV2 固件
     python release.py -e nodemcu-32s -e nodequadmini  # 构建多个指定环境
 
 环境要求:
@@ -524,6 +581,8 @@ def main():
 支持的环境:
     - nodemcu-32s      : NodeHexa (六足机器人)
     - nodequadmini     : NodeQuadMini (四足机器人)
+    - nodehexa-v2      : NodeHexaV2 (六足机器人)
+    - nodequadmini-v2  : NodeQuadMini V2 (四足机器人)
 
 功能:
     1. 从 platformio.ini 读取各环境的版本号

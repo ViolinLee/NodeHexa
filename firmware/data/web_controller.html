@@ -630,13 +630,14 @@
       </div>
       <div id="otherSettingsForm">
         <div class="form-group">
-          <label class="form-label" id="labelLowBatteryProtect">低电量保护</label>
+          <label class="form-label" id="labelLowBatteryProtect">低电量策略</label>
           <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-            <div style="font-size:13px; color:#666;" id="hintLowBatteryProtect">默认开启；关闭后低电量状态也允许运行（有风险、不建议！）</div>
-            <label class="switch" title="Low battery protection">
-              <input type="checkbox" id="lowBatteryProtectToggle">
-              <span class="slider"></span>
-            </label>
+            <div style="font-size:13px; color:#666;" id="hintLowBatteryProtect">安全卸力为默认；所有策略都会持续报警。</div>
+            <select id="lowBatteryPolicySelect" style="min-width:132px;padding:8px;border:1px solid #d1d5db;border-radius:8px;background:#fff;">
+              <option value="release_pwm">安全卸力</option>
+              <option value="hold_and_lock">保持姿态</option>
+              <option value="warn_only">仅报警（高风险）</option>
+            </select>
           </div>
         </div>
         <div class="form-group">
@@ -654,7 +655,7 @@
         </div>
         <div class="form-group">
           <label class="form-label" id="labelFirmwareVersion">固件版本</label>
-          <div class="firmware-version-badge" id="firmwareVersionBadge">v2.1.0</div>
+          <div class="firmware-version-badge" id="firmwareVersionBadge">v--</div>
         </div>
         <div class="status-message" id="otherStatusMessage"></div>
       </div>
@@ -690,11 +691,34 @@
   
   <script src="/power_ui.js"></script>
   <script src="/single_leg_panel.js"></script>
+  <script src="/camera_ui.js"></script>
   <script>
     var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/cmd"; 
     let websocketCarInput;
+    let expectedRobotId = null;
+    let identityReady = false;
+    let identityChanged = false;
+    function acceptRobotIdentity(caps) {
+      const id = caps && caps.robot && caps.robot.id || '';
+      if (expectedRobotId === null) expectedRobotId = id;
+      if (id !== expectedRobotId) identityChanged = true;
+      identityReady = !identityChanged;
+      let badge = document.getElementById('robotIdentity');
+      if (!badge) {
+        badge = document.createElement('button');
+        badge.id = 'robotIdentity';
+        badge.type = 'button';
+        badge.style.cssText = 'display:block;margin:6px auto;padding:8px 12px;border:0;border-radius:8px;max-width:calc(100% - 24px);white-space:normal;font-size:14px';
+        badge.onclick = () => { if (identityChanged) window.location.reload(); };
+        document.querySelector('h1.title').insertAdjacentElement('afterend',badge);
+      }
+      badge.textContent = identityChanged ? '机器人已切换，点击确认并重新加载' :
+        (id ? '机器人 ' + id : '机器人身份未验证（旧固件）');
+      badge.style.background = identityChanged ? '#fca5a5' : '#e5e7eb';
+      return identityReady;
+    }
     let powerUi;
-    let lowBatteryProtectionEnabled = true;
+    let lowBatteryPolicy = 'release_pwm';
     let motionButtonMode = 'continuous';
     let performanceCaps = {
       freestyle: false,
@@ -725,10 +749,12 @@
     function initRobotInputWebSocket() {
       websocketCarInput = new WebSocket(webSocketCarInputUrl);
       websocketCarInput.onopen = function(event) {
+        identityReady = false;
         console.log('WebSocket is open now.');
         loadCapsAndUpdateFooter().catch(function() {});
       };
       websocketCarInput.onclose = function(event) {
+        identityReady = false;
         console.log('WebSocket is closed now. Reconnecting...');
         if (window.SingleLegPanel) {
           window.SingleLegPanel.handleSocketClosed();
@@ -738,8 +764,14 @@
       websocketCarInput.onmessage = function(event) {
         try {
           const msg = JSON.parse(event.data);
+          if (msg.code === 'ROBOT_ID_MISMATCH') {
+            identityChanged = true;
+            identityReady = false;
+            loadCapsAndUpdateFooter().catch(function() {});
+            return;
+          }
           if (powerUi && powerUi.handleWsMessage(msg)) {
-            lowBatteryProtectionEnabled = !!powerUi.getState().lowBatteryProtectionEnabled;
+            lowBatteryPolicy = powerUi.getState().lowBatteryPolicy;
             return;
           }
         } catch (_) {
@@ -749,8 +781,9 @@
     }
 
     function sendWsPayload(payload) {
+      if (!identityReady || identityChanged) return;
       if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
-        websocketCarInput.send(JSON.stringify(payload));
+        websocketCarInput.send(JSON.stringify(expectedRobotId ? {...payload, robotId: expectedRobotId} : payload));
         console.log('Sent payload:', payload);
       } else {
         console.log('WebSocket is not open. Cannot send payload.');
@@ -810,22 +843,12 @@
 
     function sendSpeed(speed) {
       if (guardLowBattery()) return;
-      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
-        websocketCarInput.send(JSON.stringify({speed: parseFloat(speed)}));
-        console.log('Sent speed: ' + speed);
-      } else {
-        console.log('WebSocket is not open. Cannot send speed.');
-      }
+      sendWsPayload({speed: parseFloat(speed)});
     }
 
     function sendGaitMode(gaitMode) {
       if (guardLowBattery()) return;
-      if (websocketCarInput && websocketCarInput.readyState === WebSocket.OPEN) {
-        websocketCarInput.send(JSON.stringify({gaitMode: parseInt(gaitMode, 10)}));
-        console.log('Sent gaitMode: ' + gaitMode);
-      } else {
-        console.log('WebSocket is not open. Cannot send gaitMode.');
-      }
+      sendWsPayload({gaitMode: parseInt(gaitMode, 10)});
     }
 
     // 步态控制（仅四足需要；六足不显示）
@@ -1065,8 +1088,11 @@
       pendingMsg: { zh: '设备将在3秒后重启，请连接到新的AP：', en: 'Device will reboot in 3 seconds, please connect to new AP:' },
       pendingHint: { zh: '连接后访问 http://192.168.4.1 完成确认', en: 'Visit http://192.168.4.1 after connecting to confirm' },
       otherModalTitle: { zh: '设置', en: 'Settings' },
-      labelLowBatteryProtect: { zh: '低电量保护', en: 'Low battery protection' },
-      hintLowBatteryProtect: { zh: '默认开启；关闭后低电量状态也允许运行', en: 'Enabled by default. Turn off to allow running under low battery.' },
+      labelLowBatteryProtect: { zh: '低电量策略', en: 'Low battery policy' },
+      hintLowBatteryProtect: { zh: '安全卸力为默认；所有策略都会持续报警', en: 'Release PWM is the default; every policy keeps the alarm active.' },
+      lowBatteryPolicyRelease: { zh: '安全卸力', en: 'Release PWM' },
+      lowBatteryPolicyHold: { zh: '保持姿态', en: 'Hold posture' },
+      lowBatteryPolicyWarn: { zh: '仅报警（高风险）', en: 'Warn only (high risk)' },
       labelMotionButtonMode: { zh: '动作按钮模式', en: 'Motion button mode' },
       labelFirmwareVersion: { zh: '固件版本', en: 'Firmware Version' },
       hintMotionButtonMode: { zh: '持续：普通动作持续生效，表演动作会循环播放；单次：普通动作执行 1 个动作周期，表演动作执行 1 次完整表演。', en: 'Continuous: basic motions stay active and performances loop. Single: basic motions run 1 cycle, while performances run one full show.' },
@@ -1166,6 +1192,12 @@
       if (lbLabel) lbLabel.textContent = langTexts.labelLowBatteryProtect[currentLang];
       const lbHint = document.getElementById('hintLowBatteryProtect');
       if (lbHint) lbHint.textContent = langTexts.hintLowBatteryProtect[currentLang];
+      const policySelect = document.getElementById('lowBatteryPolicySelect');
+      if (policySelect) {
+        policySelect.options[0].textContent = langTexts.lowBatteryPolicyRelease[currentLang];
+        policySelect.options[1].textContent = langTexts.lowBatteryPolicyHold[currentLang];
+        policySelect.options[2].textContent = langTexts.lowBatteryPolicyWarn[currentLang];
+      }
       const motionLabel = document.getElementById('labelMotionButtonMode');
       if (motionLabel) motionLabel.textContent = langTexts.labelMotionButtonMode[currentLang];
       const motionHint = document.getElementById('hintMotionButtonMode');
@@ -1184,19 +1216,23 @@
     }
 
     function applySettingsResponse(data) {
-      if (data && data.power && typeof data.power.lowBatteryProtectionEnabled !== 'undefined') {
-        lowBatteryProtectionEnabled = !!data.power.lowBatteryProtectionEnabled;
-        if (powerUi) powerUi.setProtectionEnabled(lowBatteryProtectionEnabled);
+      if (data && data.power && typeof data.power.lowBatteryPolicy === 'string') {
+        lowBatteryPolicy = data.power.lowBatteryPolicy;
+        const effectivePolicy = typeof data.power.effectiveLowBatteryPolicy === 'string'
+          ? data.power.effectiveLowBatteryPolicy
+          : lowBatteryPolicy;
+        if (powerUi) powerUi.setPolicy(effectivePolicy);
       }
       if (data && data.motion && typeof data.motion.buttonMode === 'string') {
         motionButtonMode = data.motion.buttonMode === 'single_cycle' ? 'single_cycle' : 'continuous';
       }
 
-      const lbToggle = document.getElementById('lowBatteryProtectToggle');
-      if (lbToggle) lbToggle.checked = !!lowBatteryProtectionEnabled;
+      const policySelect = document.getElementById('lowBatteryPolicySelect');
+      if (policySelect) policySelect.value = lowBatteryPolicy;
       const motionToggle = document.getElementById('motionButtonModeToggle');
       if (motionToggle) motionToggle.checked = motionButtonMode === 'single_cycle';
       updateMotionButtonModeStateText();
+      if (window.CameraUi) window.CameraUi.setMotionButtonMode(motionButtonMode);
     }
 
     function showOtherSettingsStatus(message, type) {
@@ -1214,7 +1250,12 @@
       try {
         const resp = await fetch('/api/caps', { cache: 'no-store' });
         const data = await resp.json();
+        if (!acceptRobotIdentity(data)) return;
         const type = data && data.robot && data.robot.type ? data.robot.type : 'hexa';
+        const versionBadge = document.getElementById('firmwareVersionBadge');
+        if (versionBadge && data && data.firmware && data.firmware.version) {
+          versionBadge.textContent = 'v' + data.firmware.version;
+        }
         robotType = type;
         performanceCaps = {
           freestyle: !!(data && data.performance && data.performance.freestyle),
@@ -1223,7 +1264,7 @@
         };
         if (powerUi) {
           powerUi.applyCaps(data);
-          lowBatteryProtectionEnabled = !!powerUi.getState().lowBatteryProtectionEnabled;
+          lowBatteryPolicy = powerUi.getState().lowBatteryPolicy;
         }
 
         if (type === 'quad') {
@@ -1240,6 +1281,9 @@
         updatePerformanceVisibility();
         if (window.SingleLegPanel) {
           window.SingleLegPanel.applyCaps(data);
+        }
+        if (window.CameraUi) {
+          window.CameraUi.applyCaps(data);
         }
         renderGaitExperimentalToggle();
         renderGaitRadios();
@@ -1300,12 +1344,12 @@
         // ignore
       }
       applySettingsResponse({
-        power: { lowBatteryProtectionEnabled: lowBatteryProtectionEnabled },
+        power: { lowBatteryPolicy: lowBatteryPolicy },
         motion: { buttonMode: motionButtonMode }
       });
     }
 
-    async function setLowBatteryProtectionEnabled(enabled) {
+    async function setLowBatteryPolicy(policy) {
       const statusEl = document.getElementById('otherStatusMessage');
       if (statusEl) {
         statusEl.className = 'status-message';
@@ -1316,14 +1360,12 @@
         const resp = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ power: { lowBatteryProtectionEnabled: !!enabled } })
+          body: JSON.stringify({ power: { lowBatteryPolicy: policy } })
         });
         const data = await resp.json();
         if (data && data.status === 'success') {
           applySettingsResponse(data);
-          if (lowBatteryProtectionEnabled) {
-            await loadCapsAndUpdateFooter();
-          }
+          await loadCapsAndUpdateFooter();
           showOtherSettingsStatus((currentLang === 'zh') ? '已保存' : 'Saved', 'success');
         } else {
           throw new Error((data && data.message) ? data.message : 'Unknown error');
@@ -1514,7 +1556,7 @@
         getLang: () => currentLang,
         alertFn: alert,
         onStateChange: (powerState) => {
-          lowBatteryProtectionEnabled = !!powerState.lowBatteryProtectionEnabled;
+          lowBatteryPolicy = powerState.lowBatteryPolicy;
         }
       });
       powerUi.render();
@@ -1528,6 +1570,17 @@
           requestExclusiveControl: () => sendWsPayload({stop: true})
         });
         window.SingleLegPanel.updateLanguage(currentLang);
+      }
+      if (window.CameraUi) {
+        window.CameraUi.init({
+          sendMovement: sendCommand,
+          sendSpeed,
+          stop: sendStopCommand,
+          guardLowBattery,
+          getLang: () => currentLang,
+          acceptRobotIdentity,
+          getMotionButtonMode: () => motionButtonMode
+        });
       }
       initRobotInputWebSocket();
       initSpeedControl();
@@ -1544,12 +1597,12 @@
       await loadOtherSettings();
       powerUi.startPolling(10000);
 
-      // 绑定“低电量保护”开关
-      const lbToggle = document.getElementById('lowBatteryProtectToggle');
-      if (lbToggle) {
-        lbToggle.checked = !!lowBatteryProtectionEnabled;
-        lbToggle.addEventListener('change', () => {
-          setLowBatteryProtectionEnabled(!!lbToggle.checked);
+      // 绑定低电量三态策略
+      const policySelect = document.getElementById('lowBatteryPolicySelect');
+      if (policySelect) {
+        policySelect.value = lowBatteryPolicy;
+        policySelect.addEventListener('change', () => {
+          setLowBatteryPolicy(policySelect.value);
         });
       }
       const motionToggle = document.getElementById('motionButtonModeToggle');
