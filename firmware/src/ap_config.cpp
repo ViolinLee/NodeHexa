@@ -140,6 +140,7 @@ bool restoreWifiDriverSettings() {
 
   const esp_err_t restoreResult = esp_wifi_restore();
   const esp_err_t storageResult = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  WiFi.mode(WIFI_OFF);
   WiFi.persistent(false);
 
   if (restoreResult != ESP_OK) {
