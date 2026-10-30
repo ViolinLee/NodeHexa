@@ -25,6 +25,9 @@ constexpr MovementMetrics kMetrics[MOVEMENT_TOTAL] = {
     /* MOVEMENT_ROTATEZ     */ {0.0f, 20.0f, 2.0f},
     /* MOVEMENT_TWIST       */ {0.0f, 15.0f, 2.0f},
     /* MOVEMENT_BEATSWAY    */ {0.0f, 18.0f, 2.0f},
+    /* MOVEMENT_ATTACK      */ {0.0f, 0.0f, 1.0f},
+    /* MOVEMENT_GREETING    */ {0.0f, 0.0f, 1.0f},
+    /* MOVEMENT_CURIOSITY   */ {0.0f, 0.0f, 1.0f},
 };
 
 }
@@ -39,4 +42,3 @@ const MovementMetrics& getMovementMetrics(MovementMode mode) {
 }
 
 }
-

@@ -12,6 +12,10 @@ using namespace hexapod;
 
 namespace {
 
+bool isOneShot(Kind kind) {
+    return kind == Kind::Attack || kind == Kind::Greeting || kind == Kind::Curiosity;
+}
+
 constexpr size_t kPerformanceSequenceLength = 5;
 constexpr float kBeatSwayCyclesPerRound = 2.0f;
 
@@ -107,6 +111,12 @@ const char* kindToKey(Kind kind) {
             return "beatsway";
         case Kind::Showtime:
             return "showtime";
+        case Kind::Attack:
+            return "attack";
+        case Kind::Greeting:
+            return "greeting";
+        case Kind::Curiosity:
+            return "curiosity";
         case Kind::None:
         default:
             return "none";
@@ -114,6 +124,9 @@ const char* kindToKey(Kind kind) {
 }
 
 bool isSupported(Kind kind) {
+#ifndef ROBOT_MODEL_NODEQUADMINI
+    if (isOneShot(kind)) return true;
+#endif
     return kind == Kind::Freestyle
         || kind == Kind::BeatSway
         || kind == Kind::Showtime;
@@ -145,7 +158,7 @@ bool Controller::start(Kind kind,
 
     State nextState;
     nextState.kind = kind;
-    nextState.repeat = repeat;
+    nextState.repeat = repeat && !isOneShot(kind);
     nextState.active = true;
     nextState.sequenceId = requestedSequenceId ? requestedSequenceId : nextSequenceId();
 
@@ -215,6 +228,19 @@ bool Controller::enqueueRound(const State& state, bool clearQueue, String& error
             return enqueueBeatSway(state.sequenceId, error);
         case Kind::Showtime:
             return enqueueShowtime(state.sequenceId, error);
+        case Kind::Attack:
+        case Kind::Greeting:
+        case Kind::Curiosity: {
+            const MovementMode mode = state.kind == Kind::Greeting ? MOVEMENT_GREETING
+                : state.kind == Kind::Curiosity ? MOVEMENT_CURIOSITY : MOVEMENT_ATTACK;
+            // A standby tick also restarts table playback when this command
+            // overrides the same performance, using the normal mode-switch path.
+            Action actions[] = {
+                makeCyclesAction(MOVEMENT_STANDBY, 1.0f),
+                makeCyclesAction(mode, 1.0f),
+            };
+            return enqueueActionSequence(actions, 2, state.sequenceId, error);
+        }
         case Kind::None:
         default:
             error = "invalid performance kind";

@@ -10,11 +10,6 @@ namespace quadruped {
     namespace {
         // freq = 50, 1 tick = 1000000 / (50*4096) ~= 5us
         const static int kFrequency = 50;
-        const static int kTickUs = 5;
-        const static int kServoMiddle = 1500;
-        const static int kServoMax = 2500;
-        const static int kServoMin = 500;
-        const static int kServoRange = kServoMax - kServoMiddle;
 
         // 单片 PCA9685，地址固定为 0x40
         static hexapod::hal::PCA9685 pwm(0x40);
@@ -58,33 +53,16 @@ namespace quadruped {
         offset_ = 0;
     }
 
-    void ServoQuad::setAngle(float angle) {
+    bool ServoQuad::setAngle(float angle) {
+        int ticks;
+        if (!mapping().pulse(angle, ticks)) return false;
+        if (!servo_output::writeAllowed()) return false;
+        if (commanded_ && angle == angle_) return true;
         initPWM();
-
-        if (angle > range_ + adjust_angle_) {
-            LOG_INFO("Quad servo exceed[%d][%f]", pwmIndex_, angle);
-            angle = static_cast<float>(range_ + adjust_angle_);
-        }
-        else if (angle < -range_ + adjust_angle_) {
-            LOG_INFO("Quad servo exceed[%d][%f]", pwmIndex_, angle);
-            angle = static_cast<float>(-range_ + adjust_angle_);
-        }
-
+        if (!servo_output::write(pwm, pwmIndex_, 0, ticks)) return false;
         angle_ = angle;
-
-        int idx = pwmIndex_;
-        angle -= adjust_angle_;
-        if (inverse_)
-            angle = -angle;
-
-        int us = kServoMiddle + static_cast<int>((angle + offset_) * (kServoRange / 90.0f));
-        if (us > kServoMax)
-            us = kServoMax;
-        else if (us < kServoMin)
-            us = kServoMin;
-
-        servo_output::write(pwm, idx, 0, us / kTickUs);
-        LOG_DEBUG("Quad setAngle(%.2f, %d)", angle, us);
+        commanded_ = true;
+        return true;
     }
 
     float ServoQuad::getAngle(void) {

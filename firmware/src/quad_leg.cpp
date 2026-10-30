@@ -7,6 +7,7 @@
 #include "debug.h"
 
 #include <cmath>
+#include "leg_kinematics.h"
 
 using namespace hexapod::config;
 
@@ -49,15 +50,7 @@ namespace quadruped {
             dest.z_ = src.z_;
         }
 
-        float clampUnit(float value) {
-            if (value < -1.0f) {
-                return -1.0f;
-            }
-            if (value > 1.0f) {
-                return 1.0f;
-            }
-            return value;
-        }
+
     }
 
     //
@@ -124,105 +117,71 @@ namespace quadruped {
 
     void Leg::translateToWorld(const hexapod::Point3D& local, hexapod::Point3D& world) {
         worldConv_(local, world);
+        // The legacy world->local matrix uses rounded 0.7071 coefficients.
+        // Divide by its squared norm so the reverse is its actual inverse.
+        if (true) {
+            world.x_ /= 2.0f * 0.7071f * 0.7071f;
+            world.y_ /= 2.0f * 0.7071f * 0.7071f;
+        }
         world += mountPosition_;
     }
 
-    void Leg::setJointAngle(float angle[3]) {
-        hexapod::Point3D to;
-        _forwardKinematics(angle, to);
-        moveTipLocal(to);
+    bool Leg::hasPosition() const {
+        return servos_[0]->hasCommand() && servos_[1]->hasCommand() && servos_[2]->hasCommand();
     }
 
-    void Leg::moveTip(const hexapod::Point3D& to) {
-        if (to == tipPos_)
-            return;
+    bool Leg::solveLocal(const hexapod::Point3D& tip, float angles[3]) const {
+        if (!motioncore::inverse(tip, angles)) return false;
+        for (int j = 0; j < 3; ++j) if (!servos_[j]->canSetAngle(angles[j])) return false;
+        return true;
+    }
 
+    bool Leg::canMoveTip(const hexapod::Point3D& world) {
+        hexapod::Point3D local;
+        translateToLocal(world, local);
+        float angles[3];
+        return solveLocal(local, angles);
+    }
+
+    bool Leg::setJointAngle(float angles[3]) {
+        for (int j = 0; j < 3; ++j) if (!servos_[j]->canSetAngle(angles[j])) return false;
+        bool ok = true;
+        for (int j = 0; j < 3; ++j) {
+            if (!servos_[j]->setAngle(angles[j])) { ok = false; break; }
+        }
+        // I2C writes are not atomic. On failure retain the last successful
+        // command for each joint, rather than recording the requested endpoint.
+        if (hasPosition()) {
+            float applied[3];
+            for (int j = 0; j < 3; ++j) applied[j] = servos_[j]->getAngle();
+            motioncore::forward(applied, tipPosLocal_);
+            translateToWorld(tipPosLocal_, tipPos_);
+        }
+        return ok;
+    }
+
+    bool Leg::moveTip(const hexapod::Point3D& to) {
         hexapod::Point3D local;
         translateToLocal(to, local);
-        LOG_DEBUG("quad leg(%d) moveTip(%f,%f,%f)(%f,%f,%f)",
-                  index_, to.x_, to.y_, to.z_, local.x_, local.y_, local.z_);
-        _move(local);
+        float angles[3];
+        if (!solveLocal(local, angles) || !setJointAngle(angles)) return false;
         tipPos_ = to;
         tipPosLocal_ = local;
+        return true;
     }
 
-    const hexapod::Point3D& Leg::getTipPosition(void) {
-        return tipPos_;
-    }
+    const hexapod::Point3D& Leg::getTipPosition() { return tipPos_; }
 
-    void Leg::moveTipLocal(const hexapod::Point3D& to) {
-        if (to == tipPosLocal_)
-            return;
-
-        hexapod::Point3D world;
-        translateToWorld(to, world);
-        _move(to);
-        tipPos_ = world;
-        tipPosLocal_ = to;
-    }
-
-    const hexapod::Point3D& Leg::getTipPositionLocal(void) {
-        return tipPosLocal_;
-    }
-
-    //
-    // Private: Kinematics
-    //
-
-    const float pi = std::acos(-1.0f);
-    const float hpi = pi / 2.0f;
-
-    void Leg::_forwardKinematics(float angle[3], hexapod::Point3D& out) {
-        float radian[3];
-        for (int i = 0; i < 3; i++)
-            radian[i] = pi * angle[i] / 180.0f;
-
-        float x = kLegJoint1ToJoint2 +
-                  std::cos(radian[1]) * kLegJoint2ToJoint3 +
-                  std::cos(radian[1] + radian[2] - hpi) * kLegJoint3ToTip;
-
-        out.x_ = kLegRootToJoint1 + std::cos(radian[0]) * x;
-        out.y_ = std::sin(radian[0]) * x;
-        out.z_ = std::sin(radian[1]) * kLegJoint2ToJoint3 +
-                 std::sin(radian[1] + radian[2] - hpi) * kLegJoint3ToTip;
-    }
-
-    void Leg::_inverseKinematics(const hexapod::Point3D& to, float angles[3]) {
-        float x = to.x_ - kLegRootToJoint1;
-        float y = to.y_;
-
-        angles[0] = std::atan2(y, x) * 180.0f / pi;
-
-        x = std::sqrt(x * x + y * y) - kLegJoint1ToJoint2;
-        y = to.z_;
-        float ar = std::atan2(y, x);
-        float lr2 = x * x + y * y;
-        float lr = std::sqrt(lr2);
-        if (lr < 1e-4f) {
-            lr = 1e-4f;
-        }
-        float ratio1 = (lr2 + kLegJoint2ToJoint3 * kLegJoint2ToJoint3 -
-                        kLegJoint3ToTip * kLegJoint3ToTip) /
-                       (2 * kLegJoint2ToJoint3 * lr);
-        float ratio2 = (lr2 - kLegJoint2ToJoint3 * kLegJoint2ToJoint3 +
-                        kLegJoint3ToTip * kLegJoint3ToTip) /
-                       (2 * kLegJoint3ToTip * lr);
-        float a1 = std::acos(clampUnit(ratio1));
-        float a2 = std::acos(clampUnit(ratio2));
-        angles[1] = (ar + a1) * 180.0f / pi;
-        angles[2] = 90.0f - ((a1 + a2) * 180.0f / pi);
-    }
-
-    void Leg::_move(const hexapod::Point3D& to) {
+    bool Leg::moveTipLocal(const hexapod::Point3D& to) {
         float angles[3];
-        _inverseKinematics(to, angles);
-        LOG_DEBUG("quad leg(%d) move: (%f,%f,%f)", index_, angles[0], angles[1], angles[2]);
-        for (int i = 0; i < 3; i++) {
-            servos_[i]->setAngle(angles[i]);
-        }
+        if (!solveLocal(to, angles) || !setJointAngle(angles)) return false;
+        tipPosLocal_ = to;
+        translateToWorld(to, tipPos_);
+        return true;
     }
 
-} // namespace quadruped
+    const hexapod::Point3D& Leg::getTipPositionLocal() { return tipPosLocal_; }
+
+} // namespace
 
 #endif // ROBOT_MODEL_NODEQUADMINI
-

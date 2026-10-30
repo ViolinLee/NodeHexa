@@ -67,6 +67,11 @@ namespace hexapod {
             return false;
         }
 
+        // Uses the same IK and calibrated limits as every other motion path.
+        virtual bool validateSingleLegControl(int, const Point3D&, float) { return false; }
+        virtual bool returnSingleLegControl(uint32_t, bool& complete) { complete = false; return false; }
+        virtual bool motionFrameAccepted() const { return true; }
+
         virtual bool singleLegWorldToLocal(int legIndex, const Point3D& worldTip, Point3D& localTip) {
             (void)legIndex;
             (void)worldTip;

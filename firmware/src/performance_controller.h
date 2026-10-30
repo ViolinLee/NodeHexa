@@ -13,6 +13,9 @@ enum class Kind : uint8_t {
     Freestyle,
     BeatSway,
     Showtime,
+    Attack,
+    Greeting,
+    Curiosity,
 };
 
 class Controller {

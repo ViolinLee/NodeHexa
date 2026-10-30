@@ -28,6 +28,8 @@ class QuadGait:
         self.forwardfast_stride_scale = 1.6
         self.forwardfast_lift_z_scale = 0.6
         self.walk_forwardfast_stride_scale = 1.05
+        # A 1.6x creep stride crosses the +/-45 degree hip limits.
+        self.creep_forwardfast_stride_scale = 1.0
         self.frame_time_ms = frame_time_ms
 
     def gen_path(self, gait_mode, move_status, gait_speed=0):

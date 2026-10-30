@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base.h"
+#include "motion_interpolation.h"
 
 namespace hexapod {
 
@@ -20,6 +21,9 @@ namespace hexapod {
         MOVEMENT_ROTATEZ,
         MOVEMENT_TWIST,
         MOVEMENT_BEATSWAY,
+        MOVEMENT_ATTACK,
+        MOVEMENT_GREETING,
+        MOVEMENT_CURIOSITY,
 
         MOVEMENT_TOTAL,
     };
@@ -49,11 +53,14 @@ namespace hexapod {
 
         const Locations& next(int elapsed);
 
+        void setInterpolator(motioncore::TipInterpolator fn) { interpolate_ = fn; }
+
         // Speed control API
         void setSpeed(float speed);
         float getSpeed() const;
 
     private:
+        motioncore::TipInterpolator interpolate_;
         MovementMode mode_;
         Locations position_;
         int index_;             // index in mode position table

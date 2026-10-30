@@ -111,6 +111,7 @@ void sendHtmlFromSpiffs(AsyncWebServerRequest *request, const char *path);
 void sendFileFromSpiffs(AsyncWebServerRequest *request, const char *path, const char *contentType);
 void onRobotCmdWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 void normal_loop();
+static void publishSingleLegStatus();
 void setting_loop();
 static void log_output(const char* log);
 static bool parseCalibrationData(const String& jsonString,
@@ -392,6 +393,24 @@ static void log_output(const char* log) {
 
 /* 常规（运动）循环模式
 */
+static void publishSingleLegStatus() {
+  static uint32_t lastPublished = 0;
+  const uint32_t now = millis();
+  if (wsRoverCmd.count() == 0 || now - lastPublished < 250) return;
+  lastPublished = now;
+  const auto state = singleleg::controller().status();
+  StaticJsonDocument<256> doc;
+  doc["event"] = "singleLegStatus";
+  doc["active"] = state.active;
+  doc["returning"] = state.returning;
+  doc["faulted"] = state.faulted;
+  doc["limited"] = state.limited;
+  doc["legIndex"] = state.legIndex;
+  String payload;
+  serializeJson(doc, payload);
+  wsRoverCmd.textAll(payload);
+}
+
 void normal_loop() {
   // if(wsRoverCmd.count() == 0) {
   //   delay(1000 - REACT_DELAY);
@@ -429,9 +448,12 @@ void normal_loop() {
     // 对四足：动作切换存在“等待 entry/对齐”的过渡期，此时实际执行 mode 可能不同。
     // 为保证序列单位(cycles)的计时准确，应以“实际执行的 mode”来累计 completedCycles。
     const auto executedMode = hexapod::Robot ? hexapod::Robot->executedMovementMode(mode) : mode;
-    motion::controller().onLoopTick(executedMode, REACT_DELAY);
+    if (!hexapod::Robot || hexapod::Robot->motionFrameAccepted()) {
+      motion::controller().onLoopTick(executedMode, REACT_DELAY);
+    }
   }
 
+  publishSingleLegStatus();
   auto spent = millis() - t0;
 
   if(spent < REACT_DELAY) {
@@ -515,6 +537,7 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
 
   if (calibrationData.modeChanged) {
     if ((calibrationData.operation == CALIBRATESTART) && (_mode.load() == 0)) {
+      singleleg::controller().stop("[SingleLeg] calibration", false);
       _mode.store(1);
       LOG_INFO("Enter Calibration Mode.");
       if (hexapod::Robot) {
@@ -525,6 +548,7 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
       request->send(200, "application/json", "{\"status\":\"success\"}");
     } else if ((calibrationData.operation == CALIBRATESTART_EXISTING) && (_mode.load() == 0)) {
       // 进入校准模式，但不清零现有偏移；舵机转到90°+offset
+      singleleg::controller().stop("[SingleLeg] calibration", false);
       _mode.store(1);
       LOG_INFO("Enter Calibration Mode (use existing offsets).");
       if (hexapod::Robot) {
@@ -658,6 +682,9 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   performanceCaps["freestyle"] = performance::isSupported(performance::Kind::Freestyle);
   performanceCaps["beatsway"] = performance::isSupported(performance::Kind::BeatSway);
   performanceCaps["showtime"] = performance::isSupported(performance::Kind::Showtime);
+  performanceCaps["attack"] = performance::isSupported(performance::Kind::Attack);
+  performanceCaps["greeting"] = performance::isSupported(performance::Kind::Greeting);
+  performanceCaps["curiosity"] = performance::isSupported(performance::Kind::Curiosity);
 
   JsonObject manualCaps = doc.createNestedObject("manual");
 #ifdef ROBOT_MODEL_NODEQUADMINI
@@ -1039,8 +1066,10 @@ static BasicCommandResult handleBasicControlCommand(JsonVariantConst json) {
   const int movementMode = hasMovement ? json["movementMode"].as<int>() : 0;
   const int speedLevel = hasSpeedLevel ? json["speedLevel"].as<int>() : 0;
   const int gaitMode = hasGait ? json["gaitMode"].as<int>() : 0;
+  // Keep the legacy basic-control bitmask stable. New complete shows use
+  // the performance command, not additional bits in this 16-bit protocol.
   const uint16_t supportedMovementMask =
-    static_cast<uint16_t>((1U << hexapod::MOVEMENT_TOTAL) - 1U);
+    static_cast<uint16_t>((1U << (hexapod::MOVEMENT_BEATSWAY + 1)) - 1U);
   if ((hasMovement && (!json["movementMode"].is<int>() || movementMode < 0 ||
                        movementMode > UINT16_MAX ||
                        (static_cast<uint16_t>(movementMode) & ~supportedMovementMask) != 0)) ||
@@ -1640,6 +1669,18 @@ static bool parsePerformanceKindField(JsonVariantConst value, performance::Kind&
     kind = performance::Kind::Showtime;
     return true;
   }
+  if (lower == "greeting") {
+    kind = performance::Kind::Greeting;
+    return true;
+  }
+  if (lower == "curiosity") {
+    kind = performance::Kind::Curiosity;
+    return true;
+  }
+  if (lower == "attack") {
+    kind = performance::Kind::Attack;
+    return true;
+  }
   return false;
 }
 
@@ -1729,6 +1770,11 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
 
     String op = singleLeg["op"] | "";
     op.toLowerCase();
+    if (_mode.load() != 0 && op != "stop") {
+      result.success = false;
+      result.message = "single leg control unavailable during calibration";
+      return result;
+    }
 
     if (op == "start") {
       const int legIndex = singleLeg["legIndex"] | -1;
@@ -1741,7 +1787,7 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
       motion::controller().clear("[SingleLeg] start override");
       performance::controller().clear("[SingleLeg] start override");
       clearMovementFlag();
-      singleleg::controller().stop("[SingleLeg] restart");
+      // start() returns the previous leg smoothly before switching.
 
       String error;
       if (!singleleg::controller().start(static_cast<uint8_t>(legIndex), error)) {

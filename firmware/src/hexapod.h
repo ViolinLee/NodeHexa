@@ -46,11 +46,15 @@ namespace hexapod {
         bool singleLegWorldToLocal(int legIndex, const Point3D& worldTip, Point3D& localTip) override;
         bool singleLegLocalToWorld(int legIndex, const Point3D& localTip, Point3D& worldTip) override;
         void endSingleLegControl() override;
+        bool validateSingleLegControl(int legIndex, const Point3D& target, float maxJointDelta) override;
+        bool returnSingleLegControl(uint32_t elapsedMs, bool& complete) override;
+        bool motionFrameAccepted() const override { return frameAccepted_; }
 
     private:
         void calibrationLoad(); // read from flash
 
     private:
+        bool frameAccepted_ = true;
         const char* calibrationFilePath = "/calibration.json";
         MovementMode mode_;
         Movement movement_;

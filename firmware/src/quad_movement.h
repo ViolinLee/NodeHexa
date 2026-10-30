@@ -28,12 +28,16 @@ namespace quadruped {
                               QuadGaitMode gait = QUAD_GAIT_CREEP);
 
         void setMode(hexapod::MovementMode newMode);
+        void resetToStandby();
         void setGaitMode(QuadGaitMode gait);
 
         const QuadLocations& next(int elapsedMs);
 
         // 当前实际执行的 mode（切换过程中可能与 requestedMode_ 不同）
         hexapod::MovementMode executedMode() const { return mode_; }
+
+        void setReachability(std::function<bool(int, const hexapod::Point3D&)> fn) { reachable_ = fn; }
+        void setInterpolator(motioncore::TipInterpolator fn) { interpolate_ = fn; }
 
         // 速度控制
         void setSpeed(float speed);
@@ -43,10 +47,14 @@ namespace quadruped {
         float cycleDurationMsForMode(hexapod::MovementMode mode) const;
 
     private:
+        float reachableLift(int leg, float desired) const;
+        QuadLocations interpolatePose(const QuadLocations& from, const QuadLocations& to, float fraction) const;
         const QuadMovementTable& currentTable() const;
         const QuadMovementTable& tableForMode(hexapod::MovementMode mode) const;
 
     private:
+        std::function<bool(int, const hexapod::Point3D&)> reachable_;
+        motioncore::TipInterpolator interpolate_;
         hexapod::MovementMode mode_;
         hexapod::MovementMode requestedMode_;
         QuadPendingSwitch pendingSwitch_{QUAD_SWITCH_NONE};

@@ -360,6 +360,8 @@ class QuadModel(RobotPathModel):
             fast_stride_scale = getattr(self.gait, "forwardfast_stride_scale", 1.6)
             if gait_mode == QuadGait.GAIT_WALK:
                 fast_stride_scale = getattr(self.gait, "walk_forwardfast_stride_scale", fast_stride_scale)
+            if gait_mode == QuadGait.GAIT_CREEP:
+                fast_stride_scale = self.gait.creep_forwardfast_stride_scale
             fast_lift_z_scale = getattr(self.gait, "forwardfast_lift_z_scale", 0.6)
             try:
                 self.gait.amplitudeX = float(orig_amp_x) * float(fast_stride_scale)

@@ -23,6 +23,8 @@ namespace quadruped {
         float getMovementSpeed() const override;
         float getMovementCycleDurationMs(hexapod::MovementMode mode) const override;
 
+        bool motionFrameAccepted() const override { return frameAccepted_; }
+
         // 校准
         void calibrationSave() override;
         void calibrationGet(int legIndex, int partIndex, int& offset) override;
@@ -44,6 +46,7 @@ namespace quadruped {
         // 校准文件（四足）
         static constexpr const char* kCalibrationFilePath = "/calibration_quad.json";
 
+        bool frameAccepted_ = true;
         float speed_;
 
         Leg legs_[4];

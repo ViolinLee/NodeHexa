@@ -1,4 +1,6 @@
 #include <ArduinoJson.h>
+#include <algorithm>
+#include <cmath>
 #include <SPIFFS.h>
 
 #include "hexapod.h"
@@ -20,7 +22,9 @@ namespace hexapod {
         movement_{MOVEMENT_STANDBY},
         mode_{MOVEMENT_STANDBY}
     {
-
+        movement_.setInterpolator([this](int i, const Point3D& a, const Point3D& b, float t) {
+            return motioncore::interpolateTip(legs_[i], a, b, t);
+        });
     }
 
     void HexapodClass::init(bool setting, bool isReset) {
@@ -46,10 +50,26 @@ namespace hexapod {
             movement_.setMode(mode_);
         }
 
-        auto& location = movement_.next(elapsed);
-        for(int i=0;i<6;i++) {
-            legs_[i].moveTip(location.get(i));
+        // Validate the complete frame before any leg is written. Rejected
+        // frames do not advance the trajectory or the action timer.
+        Movement next = movement_;
+        const auto& location = next.next(elapsed);
+        for (int i = 0; i < 6; ++i) {
+            if (!legs_[i].canMoveTip(location.get(i))) {
+                if (frameAccepted_) LOG_INFO("[Motion] rejected frame: mode=%d leg=%d", mode, i);
+                frameAccepted_ = false;
+                return;
+            }
         }
+        for (int i = 0; i < 6; ++i) {
+            if (!legs_[i].moveTip(location.get(i))) {
+                if (frameAccepted_) LOG_INFO("[Motion] servo output failed: leg=%d", i);
+                frameAccepted_ = false;
+                return;
+            }
+        }
+        frameAccepted_ = true;
+        movement_ = next;
     }
 
     bool HexapodClass::supportsSingleLegControl() const {
@@ -66,8 +86,9 @@ namespace hexapod {
             return false;
         }
 
-        movement_.snapToMode(MOVEMENT_STANDBY);
-        mode_ = MOVEMENT_STANDBY;
+        for (int i = 0; i < 6; ++i) {
+            if (!legs_[i].canMoveTip(table.table[0].get(i))) return false;
+        }
 
         standbyTip = table.table[0].get(legIndex);
         return true;
@@ -84,8 +105,11 @@ namespace hexapod {
         }
 
         for (int i = 0; i < 6; ++i) {
+            if (!legs_[i].canMoveTip(i == legIndex ? targetTip : table.table[0].get(i))) return false;
+        }
+        for (int i = 0; i < 6; ++i) {
             const Point3D& tip = (i == legIndex) ? targetTip : table.table[0].get(i);
-            legs_[i].moveTip(tip);
+            if (!legs_[i].moveTip(tip)) return false;
         }
         return true;
     }
@@ -106,17 +130,54 @@ namespace hexapod {
         return true;
     }
 
-    void HexapodClass::endSingleLegControl() {
-        const auto& table = getMovementTable(MOVEMENT_STANDBY);
-        if (!table.table || table.length <= 0) {
-            return;
+    bool HexapodClass::validateSingleLegControl(int legIndex, const Point3D& target, float maxJointDelta) {
+        if (legIndex < 0 || legIndex >= 6) return false;
+        Point3D local;
+        legs_[legIndex].translateToLocal(target, local);
+        float angles[3];
+        if (!legs_[legIndex].solveLocal(local, angles)) return false;
+        if (maxJointDelta >= 0) {
+            if (!legs_[legIndex].hasPosition()) return false;
+            for (int j = 0; j < 3; ++j) {
+                if (std::fabs(angles[j] - legs_[legIndex].get(j)->getAngle()) > maxJointDelta) return false;
+            }
         }
+        return true;
+    }
 
+    bool HexapodClass::returnSingleLegControl(uint32_t elapsedMs, bool& complete) {
+        // Joint-space interpolation stays inside the calibrated angle intervals,
+        // including poses whose straight Cartesian return crosses an IK hole.
+        const auto& table = getMovementTable(MOVEMENT_STANDBY);
+        float target[6][3];
+        float largest = 0;
+        complete = false;
+        for (int i = 0; i < 6; ++i) {
+            Point3D local;
+            legs_[i].translateToLocal(table.table[0].get(i), local);
+            if (!legs_[i].hasPosition() || !legs_[i].solveLocal(local, target[i])) return false;
+            for (int j = 0; j < 3; ++j)
+                largest = std::max(largest, std::fabs(target[i][j] - legs_[i].get(j)->getAngle()));
+        }
+        const float step = 60.0f * std::min(elapsedMs, uint32_t(50)) / 1000.0f;
+        const float fraction = largest > step ? step / largest : 1.0f;
+        for (int i = 0; i < 6; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                const float current = legs_[i].get(j)->getAngle();
+                target[i][j] = fraction == 1 ? target[i][j] : current + (target[i][j] - current) * fraction;
+            }
+            for (int j = 0; j < 3; ++j) if (!legs_[i].get(j)->canSetAngle(target[i][j])) return false;
+        }
+        for (int i = 0; i < 6; ++i) if (!legs_[i].setJointAngle(target[i])) return false;
+        complete = fraction == 1;
+        return true;
+    }
+
+    void HexapodClass::endSingleLegControl() {
+        // The controller has already returned all joints at a bounded speed.
         movement_.snapToMode(MOVEMENT_STANDBY);
         mode_ = MOVEMENT_STANDBY;
-        for (int i = 0; i < 6; ++i) {
-            legs_[i].moveTip(table.table[0].get(i));
-        }
+        frameAccepted_ = true;
     }
 
     void HexapodClass::setMovementSpeed(float speed) {

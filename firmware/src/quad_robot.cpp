@@ -17,11 +17,16 @@ namespace quadruped {
           legs_{Leg(0), Leg(1), Leg(2), Leg(3)},
           mode_{MOVEMENT_STANDBY},
           movement_{MOVEMENT_STANDBY, QUAD_GAIT_CREEP} {
+        movement_.setReachability([this](int i, const Point3D& p) { return legs_[i].canMoveTip(p); });
+        movement_.setInterpolator([this](int i, const Point3D& a, const Point3D& b, float t) {
+            return motioncore::interpolateTip(legs_[i], a, b, t);
+        });
     }
 
     void QuadRobot::init(bool setting, bool isReset) {
         ServoQuad::init();
         calibrationLoad();
+        movement_.resetToStandby();
 
         if (isReset) {
             forceResetAllLegTippos();
@@ -44,10 +49,26 @@ namespace quadruped {
             movement_.setMode(mode_);
         }
 
-        const QuadLocations& loc = movement_.next(elapsedMs);
+        // Validate the complete frame before any leg is written. Rejected
+        // frames do not advance the trajectory or the action timer.
+        QuadMovement next = movement_;
+        const auto& loc = next.next(elapsedMs);
         for (int i = 0; i < 4; ++i) {
-            legs_[i].moveTip(loc.p[i]);
+            if (!legs_[i].canMoveTip(loc.p[i])) {
+                if (frameAccepted_) LOG_INFO("[Motion] rejected frame: mode=%d leg=%d", mode, i);
+                frameAccepted_ = false;
+                return;
+            }
         }
+        for (int i = 0; i < 4; ++i) {
+            if (!legs_[i].moveTip(loc.p[i])) {
+                if (frameAccepted_) LOG_INFO("[Motion] servo output failed: leg=%d", i);
+                frameAccepted_ = false;
+                return;
+            }
+        }
+        frameAccepted_ = true;
+        movement_ = next;
     }
 
     void QuadRobot::setMovementSpeed(float speed) {

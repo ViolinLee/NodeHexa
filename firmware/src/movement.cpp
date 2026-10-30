@@ -20,6 +20,9 @@ namespace hexapod {
     extern const MovementTable& rotatezTable();
     extern const MovementTable& twistTable();
     extern const MovementTable& beatswayTable();
+    extern const MovementTable& attackTable();
+    extern const MovementTable& greetingTable();
+    extern const MovementTable& curiosityTable();
 
     const MovementTable kTable[MOVEMENT_TOTAL] {
         standbyTable(),
@@ -36,6 +39,17 @@ namespace hexapod {
         rotatezTable(),
         twistTable(),
         beatswayTable(),
+#ifndef ROBOT_MODEL_NODEQUADMINI
+        attackTable(),
+        greetingTable(),
+        curiosityTable(),
+#else
+        // These complete shows require six legs. Keep enum slots compatible
+        // without retaining their trajectory data in quadruped flash.
+        standbyTable(),
+        standbyTable(),
+        standbyTable(),
+#endif
     };
 
     const MovementTable& getMovementTable(MovementMode mode) {
@@ -111,7 +125,14 @@ namespace hexapod {
             elapsed = remainTime_;
 
         auto ratio = (float)elapsed / remainTime_;
-        position_ += (table.table[index_] - position_)*ratio;
+        if (interpolate_) {
+            Point3D points[6];
+            for (int i = 0; i < 6; ++i)
+                points[i] = interpolate_(i, position_.get(i), table.table[index_].get(i), ratio);
+            position_ = {points[0], points[1], points[2], points[3], points[4], points[5]};
+        } else {
+            position_ += (table.table[index_] - position_)*ratio;
+        }
         remainTime_ -= elapsed;
 
         return position_;
