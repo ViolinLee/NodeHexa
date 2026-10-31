@@ -137,6 +137,9 @@
       display: none;
       margin-top: 10px;
     }
+    #performanceGreetingBtn { grid-column: 1; grid-row: 2; }
+    #performanceAttackBtn { grid-column: 2; grid-row: 2; }
+    #performanceCuriosityBtn { grid-column: 3; grid-row: 2; }
 
     /* 速度控制区域样式 */
     .speed-control {
@@ -572,6 +575,9 @@
       <button class="button button-performance grid-item-1" id="performanceFreestyleBtn" onclick="sendPerformanceCommand('freestyle')" data-zh="自由律动" data-en="Freestyle">自由律动</button>
       <button class="button button-performance grid-item-1" id="performanceBeatSwayBtn" onclick="sendPerformanceCommand('beatsway')" data-zh="节拍摇摆" data-en="Beat Sway">节拍摇摆</button>
       <button class="button button-performance grid-item-1" id="performanceShowtimeBtn" onclick="sendPerformanceCommand('showtime')" data-zh="登场秀" data-en="Showtime">登场秀</button>
+      <button class="button button-performance grid-item-1" id="performanceGreetingBtn" onclick="sendPerformanceCommand('greeting')" data-zh="迎宾致意" data-en="Welcome Ritual">迎宾致意</button>
+      <button class="button button-performance grid-item-1" id="performanceAttackBtn" onclick="sendPerformanceCommand('attack')" data-zh="威慑攻击" data-en="Threat Display">威慑攻击</button>
+      <button class="button button-performance grid-item-1" id="performanceCuriosityBtn" onclick="sendPerformanceCommand('curiosity')" data-zh="好奇探察" data-en="Curious Explorer">好奇探察</button>
     </div>
   </div>
 
@@ -723,7 +729,10 @@
     let performanceCaps = {
       freestyle: false,
       beatsway: false,
-      showtime: false
+      showtime: false,
+      attack: false,
+      greeting: false,
+      curiosity: false
     };
     const commandModeToName = {
       0: 'standby',
@@ -770,6 +779,7 @@
             loadCapsAndUpdateFooter().catch(function() {});
             return;
           }
+          if (window.SingleLegPanel && window.SingleLegPanel.handleStatus(msg)) return;
           if (powerUi && powerUi.handleWsMessage(msg)) {
             lowBatteryPolicy = powerUi.getState().lowBatteryPolicy;
             return;
@@ -823,7 +833,7 @@
       resetSingleLegPanelUi();
       sendWsPayload({
         performance: kind,
-        repeat: motionButtonMode !== 'single_cycle'
+        repeat: !['attack', 'greeting', 'curiosity'].includes(kind) && motionButtonMode !== 'single_cycle'
       });
     }
 
@@ -982,7 +992,10 @@
       const buttonMap = {
         freestyle: document.getElementById('performanceFreestyleBtn'),
         beatsway: document.getElementById('performanceBeatSwayBtn'),
-        showtime: document.getElementById('performanceShowtimeBtn')
+        showtime: document.getElementById('performanceShowtimeBtn'),
+        attack: document.getElementById('performanceAttackBtn'),
+        greeting: document.getElementById('performanceGreetingBtn'),
+        curiosity: document.getElementById('performanceCuriosityBtn')
       };
 
       let hasVisibleButton = false;
@@ -1095,7 +1108,7 @@
       lowBatteryPolicyWarn: { zh: '仅报警（高风险）', en: 'Warn only (high risk)' },
       labelMotionButtonMode: { zh: '动作按钮模式', en: 'Motion button mode' },
       labelFirmwareVersion: { zh: '固件版本', en: 'Firmware Version' },
-      hintMotionButtonMode: { zh: '持续：普通动作持续生效，表演动作会循环播放；单次：普通动作执行 1 个动作周期，表演动作执行 1 次完整表演。', en: 'Continuous: basic motions stay active and performances loop. Single: basic motions run 1 cycle, while performances run one full show.' },
+      hintMotionButtonMode: { zh: '持续：普通动作持续生效，表演动作会循环播放；单次：普通动作执行 1 个动作周期，表演动作执行 1 次完整表演。迎宾致意、威慑攻击、好奇探察始终只执行一次，然后回到待机。', en: 'Continuous: basic motions stay active and performances loop. Single: basic motions run 1 cycle, while performances run one full show. Welcome Ritual, Threat Display and Curious Explorer always run once and return to standby.' },
       motionButtonModeContinuous: { zh: '当前：持续', en: 'Current: Continuous' },
       motionButtonModeSingle: { zh: '当前：单次', en: 'Current: Single' }
     };
@@ -1260,7 +1273,10 @@
         performanceCaps = {
           freestyle: !!(data && data.performance && data.performance.freestyle),
           beatsway: !!(data && data.performance && data.performance.beatsway),
-          showtime: !!(data && data.performance && data.performance.showtime)
+          showtime: !!(data && data.performance && data.performance.showtime),
+          attack: !!(data && data.performance && data.performance.attack),
+          greeting: !!(data && data.performance && data.performance.greeting),
+          curiosity: !!(data && data.performance && data.performance.curiosity)
         };
         if (powerUi) {
           powerUi.applyCaps(data);

@@ -10,6 +10,9 @@
       zh: '左摇杆控制前后/左右，右摇杆控制抬腿高度。仅六足可用。',
       en: 'Left joystick controls XY, right joystick controls lift height. Hexapod only.'
     },
+    returning: { zh: '正在平滑回到待机姿态…', en: 'Returning smoothly to standby…' },
+    limited: { zh: '已到达运动边界或速度上限，可反向或换方向继续移动。', en: 'Motion boundary or speed limit reached. Reverse or change direction to continue.' },
+    faulted: { zh: '动作未能执行，已停止推进。请检查校准和舵机连接，再重新选择腿。', en: 'Motion stopped. Check calibration and servo connections, then select a leg again.' },
     leftLabel: { zh: '左摇杆', en: 'Left Stick' },
     leftHint: { zh: '前后 / 左右', en: 'Forward / Lateral' },
     rightLabel: { zh: '右摇杆', en: 'Right Stick' },
@@ -36,6 +39,7 @@
     options: null,
     lang: 'zh',
     active: false,
+    statusKey: 'hint',
     selectedLeg: null,
     supported: false,
     axes: { lx: 0, ly: 0, rz: 0 },
@@ -166,7 +170,7 @@
     }
 
     state.titleEl.textContent = getText('title');
-    state.hintEl.textContent = getText('hint');
+    state.hintEl.textContent = getText(state.statusKey);
     state.leftLabelEl.textContent = getText('leftLabel');
     state.leftHintEl.textContent = getText('leftHint');
     state.rightLabelEl.textContent = getText('rightLabel');
@@ -176,6 +180,8 @@
   }
 
   function setActiveLeg(legIndex) {
+    state.statusKey = 'hint';
+    updateTexts();
     state.active = true;
     state.selectedLeg = legIndex;
     state.lastSent = { lx: 0, ly: 0, rz: 0 };
@@ -185,6 +191,8 @@
   }
 
   function resetUiState() {
+    state.statusKey = 'hint';
+    updateTexts();
     state.active = false;
     state.selectedLeg = null;
     state.lastSent = { lx: 0, ly: 0, rz: 0 };
@@ -582,6 +590,24 @@
     updateLanguage(lang) {
       state.lang = lang === 'en' ? 'en' : 'zh';
       updateTexts();
+    },
+    handleStatus(message) {
+      if (!message || message.event !== 'singleLegStatus') return false;
+      if (!state.panel || !state.supported) return true;
+      if (!message.active) {
+        resetUiState();
+      } else if (message.faulted) {
+        resetUiState();
+        state.statusKey = 'faulted';
+      } else {
+        if (!message.returning && Number.isInteger(message.legIndex) && message.legIndex >= 0 && message.legIndex < 6) {
+          state.active = true;
+          state.selectedLeg = message.legIndex;
+        }
+        state.statusKey = message.returning ? 'returning' : (message.limited ? 'limited' : 'hint');
+      }
+      updateTexts();
+      return true;
     },
     handleSocketClosed() {
       resetUiState();
