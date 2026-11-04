@@ -9,11 +9,6 @@ namespace hexapod {
     namespace {
         // freq = 50, 1 tick = 1000000 / (50*4096) ~= 5us
         const static int kFrequency = 50;
-        const static int kTickUs = 5;
-        const static int kServoMiddle = 1500;
-        const static int kServoMax = 2500;
-        const static int kServoMin = 500;
-        const static int kServoRange = kServoMax-kServoMiddle;
 
         auto pwmLeft = hal::PCA9685(0x41);  // 左侧拓展板需要焊接跳帽以设置I2C地址
         auto pwmRight = hal::PCA9685(0x40);
@@ -44,21 +39,6 @@ namespace hexapod {
             }
         }
 
-        int pwm2hexapod(int pwm) {
-            if(pwm >= 16+8)
-                return 9 + pwm - (16+8);
-            if(pwm >= 16+5)
-                return 15 + pwm - (16+5);
-            if(pwm >= 16+2)
-                return 12 + pwm - (16+2);
-            if(pwm >= 8)
-                return 6 + pwm - (8);
-            if(pwm >= 5)
-                return 0 + pwm - (5);
-            if(pwm >= 2)
-                return 3 + pwm - (2);
-            return -1;
-        }
 
     }
 
@@ -75,42 +55,16 @@ namespace hexapod {
         offset_ = 0;
     }
 
-    void Servo::setAngle(float angle) {
+    bool Servo::setAngle(float angle) {
+        int ticks;
+        if (!mapping().pulse(angle, ticks)) return false;
+        if (!servo_output::writeAllowed()) return false;
+        if (commanded_ && angle == angle_) return true;
         initPWM();
-
-        if (angle > range_ + adjust_angle_) {
-            LOG_INFO("exceed[%d][%f]", pwm2hexapod(pwmIndex_), angle);
-            angle = range_ + adjust_angle_;
-        }
-        else if(angle < -range_ + adjust_angle_) {
-            LOG_INFO("exceed[%d][%f]", pwm2hexapod(pwmIndex_), angle);
-            angle = -range_ + adjust_angle_;
-        }
-
+        if (!servo_output::write((pwmIndex_ < 16 ? pwmRight : pwmLeft), pwmIndex_ % 16, 0, ticks)) return false;
         angle_ = angle;
-
-        hal::PCA9685* pwm;
-        int idx;
-        if (pwmIndex_ < 16) {
-            pwm = &pwmRight;
-            idx = pwmIndex_;
-        }
-        else {
-            pwm = &pwmLeft;
-            idx = pwmIndex_ - 16;
-        }
-        angle -= adjust_angle_;
-        if (inverse_)
-            angle = -angle;
-
-        int us = kServoMiddle + (angle + offset_)*(kServoRange/90);
-        if (us > kServoMax)
-            us = kServoMax;
-        else if(us < kServoMin)
-            us = kServoMin;
-
-        servo_output::write(*pwm, idx, 0, us / kTickUs);
-        LOG_DEBUG("setAngle(%.2f, %d)", angle, us);
+        commanded_ = true;
+        return true;
     }
 
     float Servo::getAngle(void) {

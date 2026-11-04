@@ -280,6 +280,15 @@ namespace quadruped {
           index_{0},
           remainTime_{0},
           speed_{config::defaultSpeed} {
+        position_ = standbyTable().table[0];
+    }
+
+    void QuadMovement::resetToStandby() {
+        QuadMovement standby(MOVEMENT_STANDBY, gaitMode_);
+        standby.speed_ = speed_;
+        standby.interpolate_ = interpolate_;
+        standby.reachable_ = reachable_;
+        *this = standby;
     }
 
     void QuadMovement::setMode(MovementMode newMode) {
@@ -408,6 +417,7 @@ namespace quadruped {
                 const float zBase = (z0 > zt) ? z0 : zt;
                 alignLiftZ_ = zBase + kLiftHeightMm;
             }
+            alignLiftZ_ = reachableLift(leg, alignLiftZ_);
             remainTime_ = alignPhaseDurationMs(alignPhase_, speed_);
             alignPhaseTotalTime_ = remainTime_;
             alignPhaseStart_ = position_;
@@ -506,6 +516,7 @@ namespace quadruped {
                     const float zBase = (z0 > zt) ? z0 : zt;
                     alignLiftZ_ = zBase + kLiftHeightMm;
                 }
+                alignLiftZ_ = reachableLift(leg, alignLiftZ_);
                 remainTime_ = alignPhaseDurationMs(alignPhase_, speed_);
                 alignPhaseTotalTime_ = remainTime_;
                 alignPhaseStart_ = position_;
@@ -522,7 +533,7 @@ namespace quadruped {
                 }
                 groundRemainTime_ -= elapsedMs;
                 const float p = 1.0f - static_cast<float>(groundRemainTime_) / static_cast<float>(groundTotalTime_);
-                position_ = lerpLocations(groundStart_, groundTarget_, smoothstep(p));
+                position_ = interpolatePose(groundStart_, groundTarget_, smoothstep(p));
                 return position_;
             }
         }
@@ -532,7 +543,8 @@ namespace quadruped {
             // phase/leg 推进
             if (remainTime_ <= 0) {
                 const int leg = alignLegs_[alignLegPos_];
-                const bool targetAir = isAirLegAt(alignTarget_, leg);
+                const bool targetAir = isAirLegAt(alignTarget_, leg)
+                    && std::fabs(alignLiftZ_ - alignTarget_.p[leg].z_) < 0.001f;
 
                 if (targetAir) {
                     // 目标为悬空腿：只需要 lift -> moveXY 两段
@@ -544,7 +556,7 @@ namespace quadruped {
                         alignPhase_ = 0;
                     }
                 } else {
-                    // 目标为触地腿：lift -> moveXY -> lower 三段
+                    // 触地腿或受限抬高的悬空腿：最后单独对齐目标 Z
                     if (alignPhase_ == 0) {
                         alignPhase_ = 1;
                     } else if (alignPhase_ == 1) {
@@ -582,6 +594,7 @@ namespace quadruped {
                         alignLiftZ_ = zBase + kLiftHeightMm;
                     }
                 }
+                if (alignPhase_ == 0) alignLiftZ_ = reachableLift(alignLegs_[alignLegPos_], alignLiftZ_);
                 remainTime_ = alignPhaseDurationMs(alignPhase_, speed_);
 
                 // 为当前 phase 设置“起点/终点”，用于平滑插值（尤其是落脚避免“戳地”）
@@ -614,7 +627,7 @@ namespace quadruped {
 
             remainTime_ -= elapsedMs;
             const float p = 1.0f - static_cast<float>(remainTime_) / static_cast<float>(alignPhaseTotalTime_);
-            position_ = lerpLocations(alignPhaseStart_, alignPhaseTarget_, smoothstep(p));
+            position_ = interpolatePose(alignPhaseStart_, alignPhaseTarget_, smoothstep(p));
             return position_;
         }
 
@@ -683,12 +696,38 @@ namespace quadruped {
 
         QuadLocations target = table->table[index_];
         const float ratio = static_cast<float>(elapsedMs) / static_cast<float>(remainTime_);
-        for (int i = 0; i < 4; ++i) {
-            hexapod::Point3D diff = target.p[i] - position_.p[i];
-            position_.p[i] += diff * ratio;
-        }
+        position_ = interpolatePose(position_, target, ratio);
         remainTime_ -= elapsedMs;
         return position_;
+    }
+
+    float QuadMovement::reachableLift(int leg, float desired) const {
+        if (!reachable_) return desired;
+        const auto start = position_.p[leg];
+        const auto end = alignTarget_.p[leg];
+        const float base = std::min(start.z_, end.z_);
+        // This is an auxiliary clearance height, not a table endpoint. Plan it
+        // using the same calibrated validator as runtime motion output.
+        for (int height = 0; height <= 40; ++height) {
+            const float z = desired + (base - desired) * (height / 40.0f);
+            bool valid = true;
+            for (int sample = 0; sample <= 20 && valid; ++sample) {
+                const float t = sample / 20.0f;
+                auto point = start; point += (end - start) * t; point.z_ = z;
+                auto lift = start; lift.z_ += (z - start.z_) * t;
+                auto lower = end; lower.z_ += (z - end.z_) * t;
+                valid = reachable_(leg, point) && reachable_(leg, lift) && reachable_(leg, lower);
+            }
+            if (valid) return z;
+        }
+        return desired; // No feasible clearance: the frame validator rejects it.
+    }
+
+    QuadLocations QuadMovement::interpolatePose(const QuadLocations& from, const QuadLocations& to, float fraction) const {
+        if (!interpolate_) return lerpLocations(from, to, fraction);
+        QuadLocations result;
+        for (int i = 0; i < 4; ++i) result.p[i] = interpolate_(i, from.p[i], to.p[i], fraction);
+        return result;
     }
 
     void QuadMovement::setSpeed(float speed) {

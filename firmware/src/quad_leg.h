@@ -11,18 +11,22 @@ namespace quadruped {
         explicit Leg(int legIndex);
         virtual ~Leg();
 
-        // 坐标系转换：世界坐标 → 本地坐标
+        bool solveLocal(const hexapod::Point3D& tip, float angles[3]) const;
+        bool canMoveTip(const hexapod::Point3D& world);
+        bool hasPosition() const;
+
+        // Coordinate transforms
         void translateToLocal(const hexapod::Point3D& world, hexapod::Point3D& local);
         void translateToWorld(const hexapod::Point3D& local, hexapod::Point3D& world);
 
-        void setJointAngle(float angle[3]);
+        bool setJointAngle(float angle[3]);
 
         // 使用世界坐标控制足端
-        void moveTip(const hexapod::Point3D& to);
+        bool moveTip(const hexapod::Point3D& to);
         const hexapod::Point3D& getTipPosition(void);
 
         // 使用本地坐标控制足端
-        void moveTipLocal(const hexapod::Point3D& to);
+        bool moveTipLocal(const hexapod::Point3D& to);
         const hexapod::Point3D& getTipPositionLocal(void);
 
         // 获取单个关节舵机
@@ -32,15 +36,10 @@ namespace quadruped {
 
         // 强制重置记录的足端位置
         void forceResetTipPosition() {
+            for (int j = 0; j < 3; ++j) servos_[j]->invalidateCommand();
             tipPos_ = hexapod::Point3D(0, 0, 0);
             tipPosLocal_ = hexapod::Point3D(0, 0, 0);
         }
-
-    private:
-        // 本地坐标系下的正向 / 逆向运动学
-        static void _forwardKinematics(float angle[3], hexapod::Point3D& out);
-        static void _inverseKinematics(const hexapod::Point3D& to, float angles[3]);
-        void _move(const hexapod::Point3D& to);
 
     private:
         int index_{0};

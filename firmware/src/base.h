@@ -7,7 +7,7 @@ namespace hexapod {
     class Point3D {
     public:
         Point3D() = default;
-        Point3D(float x, float y, float z): x_{x}, y_{y}, z_{z} {
+        constexpr Point3D(float x, float y, float z): x_{x}, y_{y}, z_{z} {
         }
 
     public:
@@ -38,7 +38,7 @@ namespace hexapod {
     class Locations {
     public:
         Locations() = default;
-        Locations(const Point3D& foreRight, const Point3D& right, const Point3D& hindRight, const Point3D& hindLeft, const Point3D& left, const Point3D& foreLeft):
+        constexpr Locations(const Point3D& foreRight, const Point3D& right, const Point3D& hindRight, const Point3D& hindLeft, const Point3D& left, const Point3D& foreLeft):
             points_{foreRight, right, hindRight, hindLeft, left, foreLeft} {
         }
 

@@ -55,10 +55,6 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #define NODEHEXA_STRINGIFY_INNER(value) #value
 #define NODEHEXA_STRINGIFY(value) NODEHEXA_STRINGIFY_INNER(value)
 
-// 调试模式控制
-// #define DEBUG_ADC_MONITOR  // 注释此行可关闭电池电压ADC调试输出
-// #define DEBUG_FRAME_RECEIVE  // 启用帧接收调试输出
-
 // 常量定义
 
 // 串口配置
@@ -111,12 +107,12 @@ void sendHtmlFromSpiffs(AsyncWebServerRequest *request, const char *path);
 void sendFileFromSpiffs(AsyncWebServerRequest *request, const char *path, const char *contentType);
 void onRobotCmdWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 void normal_loop();
+static void publishSingleLegStatus();
 void setting_loop();
 static void log_output(const char* log);
 static bool parseCalibrationData(const String& jsonString,
                                  CalibrationData& data,
                                  String& errorMessage);
-void printWelcomeMessage();
 
 // AP 配置接口声明
 void handleApConfigGet(AsyncWebServerRequest *request);
@@ -268,11 +264,9 @@ void setup() {
   server.on("/calibration", HTTP_POST, 
     [](AsyncWebServerRequest *request)
     {
-      //Serial.println("1");
     },
     [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final)
     {
-      //Serial.println("2");
     },
     handleCalibrationData);
   server.on("/api/calibration", HTTP_GET, handleCalibrationGet);
@@ -342,10 +336,9 @@ void setup() {
     // RX only parses and enqueues. Business handling runs independently so a
     // slow command can never make the hardware UART overflow silently.
     xTaskCreate(SerialCommandTask, "UartRx", 4096, NULL, 3, NULL);
-    xTaskCreate(UartDispatchTask, "UartDispatch", 6144, NULL, 2, NULL);
+    // Keep stack headroom for nested JSON parsing and performance dispatch.
+    xTaskCreate(UartDispatchTask, "UartDispatch", 8192, NULL, 2, NULL);
   }
-
-  printWelcomeMessage();
 
   buzzer::play(buzzer::Cue::Startup);
 
@@ -392,6 +385,24 @@ static void log_output(const char* log) {
 
 /* 常规（运动）循环模式
 */
+static void publishSingleLegStatus() {
+  static uint32_t lastPublished = 0;
+  const uint32_t now = millis();
+  if (wsRoverCmd.count() == 0 || now - lastPublished < 250) return;
+  lastPublished = now;
+  const auto state = singleleg::controller().status();
+  StaticJsonDocument<256> doc;
+  doc["event"] = "singleLegStatus";
+  doc["active"] = state.active;
+  doc["returning"] = state.returning;
+  doc["faulted"] = state.faulted;
+  doc["limited"] = state.limited;
+  doc["legIndex"] = state.legIndex;
+  String payload;
+  serializeJson(doc, payload);
+  wsRoverCmd.textAll(payload);
+}
+
 void normal_loop() {
   // if(wsRoverCmd.count() == 0) {
   //   delay(1000 - REACT_DELAY);
@@ -429,24 +440,22 @@ void normal_loop() {
     // 对四足：动作切换存在“等待 entry/对齐”的过渡期，此时实际执行 mode 可能不同。
     // 为保证序列单位(cycles)的计时准确，应以“实际执行的 mode”来累计 completedCycles。
     const auto executedMode = hexapod::Robot ? hexapod::Robot->executedMovementMode(mode) : mode;
-    motion::controller().onLoopTick(executedMode, REACT_DELAY);
+    if (!hexapod::Robot || hexapod::Robot->motionFrameAccepted()) {
+      motion::controller().onLoopTick(executedMode, REACT_DELAY);
+    }
   }
 
+  publishSingleLegStatus();
   auto spent = millis() - t0;
 
   if(spent < REACT_DELAY) {
-    // Serial.println(spent);
     delay(REACT_DELAY-spent);
-  }
-  else {
-    Serial.println(spent);
   }
 }
 
 /* 配置循环模式
 */
 void setting_loop() {
-  // LOG_INFO("Calibration Mode...\n");
 }
 
 /* HandleRoot
@@ -515,6 +524,7 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
 
   if (calibrationData.modeChanged) {
     if ((calibrationData.operation == CALIBRATESTART) && (_mode.load() == 0)) {
+      singleleg::controller().stop("[SingleLeg] calibration", false);
       _mode.store(1);
       LOG_INFO("Enter Calibration Mode.");
       if (hexapod::Robot) {
@@ -525,6 +535,7 @@ void handleCalibrationData(AsyncWebServerRequest *request, uint8_t *data, size_t
       request->send(200, "application/json", "{\"status\":\"success\"}");
     } else if ((calibrationData.operation == CALIBRATESTART_EXISTING) && (_mode.load() == 0)) {
       // 进入校准模式，但不清零现有偏移；舵机转到90°+offset
+      singleleg::controller().stop("[SingleLeg] calibration", false);
       _mode.store(1);
       LOG_INFO("Enter Calibration Mode (use existing offsets).");
       if (hexapod::Robot) {
@@ -658,6 +669,9 @@ void handleCapsGet(AsyncWebServerRequest *request) {
   performanceCaps["freestyle"] = performance::isSupported(performance::Kind::Freestyle);
   performanceCaps["beatsway"] = performance::isSupported(performance::Kind::BeatSway);
   performanceCaps["showtime"] = performance::isSupported(performance::Kind::Showtime);
+  performanceCaps["attack"] = performance::isSupported(performance::Kind::Attack);
+  performanceCaps["greeting"] = performance::isSupported(performance::Kind::Greeting);
+  performanceCaps["curiosity"] = performance::isSupported(performance::Kind::Curiosity);
 
   JsonObject manualCaps = doc.createNestedObject("manual");
 #ifdef ROBOT_MODEL_NODEQUADMINI
@@ -883,7 +897,6 @@ void handleUltrasonicGet(AsyncWebServerRequest *request) {
 }
 
 void handleApConfigConfirm(AsyncWebServerRequest *request) {
-  Serial.println("AP Config: Confirm endpoint hit");
   apconfig::confirm();
   
   StaticJsonDocument<128> response;
@@ -1039,8 +1052,10 @@ static BasicCommandResult handleBasicControlCommand(JsonVariantConst json) {
   const int movementMode = hasMovement ? json["movementMode"].as<int>() : 0;
   const int speedLevel = hasSpeedLevel ? json["speedLevel"].as<int>() : 0;
   const int gaitMode = hasGait ? json["gaitMode"].as<int>() : 0;
+  // Keep the legacy basic-control bitmask stable. New complete shows use
+  // the performance command, not additional bits in this 16-bit protocol.
   const uint16_t supportedMovementMask =
-    static_cast<uint16_t>((1U << hexapod::MOVEMENT_TOTAL) - 1U);
+    static_cast<uint16_t>((1U << (hexapod::MOVEMENT_BEATSWAY + 1)) - 1U);
   if ((hasMovement && (!json["movementMode"].is<int>() || movementMode < 0 ||
                        movementMode > UINT16_MAX ||
                        (static_cast<uint16_t>(movementMode) & ~supportedMovementMask) != 0)) ||
@@ -1140,12 +1155,8 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
 
         AdvancedCommandResult adv = handleAdvancedMotionCommand(json.as<JsonVariantConst>());
         if (adv.handled) {
-          if (!adv.suppressAck) {
-            if (adv.success) {
-              Serial.println("[WebSocket] Advanced motion command accepted");
-            } else {
-              Serial.printf("[WebSocket] Advanced command failed: %s\n", adv.message.c_str());
-            }
+          if (!adv.suppressAck && !adv.success) {
+            Serial.printf("[WebSocket] Advanced command failed: %s\n", adv.message.c_str());
           }
           if (!adv.suppressAck && client) {
             StaticJsonDocument<160> ack;
@@ -1267,37 +1278,14 @@ void BatteryMonitorTask(void *pvParameters) {
     }
 
     uint16_t adcAverage = adcSum / actualSampleCount;
-    const uint16_t rawAdc = adcReadings[actualSampleCount < SAMPLE_SIZE ? actualSampleCount - 1 : readIndex == 0 ? SAMPLE_SIZE - 1 : readIndex - 1];
-
     const uint16_t voltageMv = power_manager::voltageMvFromAdcAverage(adcAverage);
-    const float voltage = voltageMv / 1000.0f;
     const bool useMovingThreshold = shouldUseMovingLowBatteryThreshold();
     const power_manager::SampleResult sample = power_manager::observeVoltage(
       voltageMv, useMovingThreshold, devsettings::getLowBatteryPolicy());
 
     if (sample.newlyLatched) {
       buzzer::setMandatoryLowBatteryAlarm(true);
-#ifdef DEBUG_ADC_MONITOR
-      Serial.println("WARNING: Low voltage detected! (latched)");
-#endif
     }
-
-    #ifdef DEBUG_ADC_MONITOR
-    Serial.printf("ADC Debug - Raw: %u, Avg: %u, Samples: %u, Voltage: %.2fV (%umV), Warning: %.2fV, Latch: %.2fV [%s], LowNow: %s, LowCount: %u/%u, Latched: %s, Handled: %s\n",
-                  rawAdc,
-                  adcAverage,
-                  actualSampleCount,
-                  voltage,
-                  voltageMv,
-                  power_manager::kWarningThresholdMv / 1000.0f,
-                  sample.thresholdMv / 1000.0f,
-                  useMovingThreshold ? "moving" : "standby",
-                  sample.belowThreshold ? "yes" : "no",
-                  sample.state.consecutiveLowSamples,
-                  power_manager::kConsecutiveSamplesToLatch,
-                  sample.state.lowBatteryLatched ? "yes" : "no",
-                  sample.state.latchHandled ? "yes" : "no");
-    #endif
 
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
@@ -1323,21 +1311,6 @@ void LEDControllerTask(void *pvParameters) {
     }
     lastState = currentState;
   }
-}
-
-// 打印欢迎语（用于确认SPIFFS文件系统正常工作）
-void printWelcomeMessage() {
-  File file = SPIFFS.open("/text.txt");
-  if(!file){
-    Serial.println("Failed to open file for reading");
-    return;
-  }
-  
-  while(file.available()){
-    Serial.write(file.read());
-  }
-  Serial.println();
-  file.close();
 }
 
 void clearMovementFlag() {
@@ -1553,7 +1526,6 @@ static void handleSequenceComplete(uint32_t sequenceId) {
 
   sendSerialResponse(payload);
   if (wsRoverCmd.count() > 0) wsRoverCmd.textAll(payload);
-  Serial.printf("[MotionController] Sequence %u completed\n", sequenceId);
   performance::controller().onSequenceComplete(sequenceId);
 }
 
@@ -1638,6 +1610,18 @@ static bool parsePerformanceKindField(JsonVariantConst value, performance::Kind&
   }
   if (lower == "showtime") {
     kind = performance::Kind::Showtime;
+    return true;
+  }
+  if (lower == "greeting") {
+    kind = performance::Kind::Greeting;
+    return true;
+  }
+  if (lower == "curiosity") {
+    kind = performance::Kind::Curiosity;
+    return true;
+  }
+  if (lower == "attack") {
+    kind = performance::Kind::Attack;
     return true;
   }
   return false;
@@ -1729,6 +1713,11 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
 
     String op = singleLeg["op"] | "";
     op.toLowerCase();
+    if (_mode.load() != 0 && op != "stop") {
+      result.success = false;
+      result.message = "single leg control unavailable during calibration";
+      return result;
+    }
 
     if (op == "start") {
       const int legIndex = singleLeg["legIndex"] | -1;
@@ -1741,7 +1730,7 @@ static AdvancedCommandResult handleAdvancedMotionCommand(JsonVariantConst json) 
       motion::controller().clear("[SingleLeg] start override");
       performance::controller().clear("[SingleLeg] start override");
       clearMovementFlag();
-      singleleg::controller().stop("[SingleLeg] restart");
+      // start() returns the previous leg smoothly before switching.
 
       String error;
       if (!singleleg::controller().start(static_cast<uint8_t>(legIndex), error)) {

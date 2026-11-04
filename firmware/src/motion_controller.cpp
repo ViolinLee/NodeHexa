@@ -68,7 +68,7 @@ void MotionController::clear(const char* reason) {
     }
     active_ = ActiveState{};
     if (reason) {
-        LOG_INFO(reason);
+        LOG_INFO("%s", reason);
     }
     xSemaphoreGive(mutex_);
 }
@@ -124,11 +124,6 @@ void MotionController::startAction(const Action& action) {
             active_.restoreSpeed = true;
         }
     }
-
-    char buffer[120];
-    snprintf(buffer, sizeof(buffer), "[MotionController] Start action mode=%d unit=%d targetCycles=%.2f sequence=%u",
-             action.mode, static_cast<int>(action.unit), active_.targetCycles, action.sequenceId);
-    LOG_INFO(buffer);
 }
 
 void MotionController::finishAction() {

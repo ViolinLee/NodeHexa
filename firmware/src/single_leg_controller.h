@@ -16,6 +16,12 @@ struct InputAxes {
     float rz = 0.0f;
 };
 
+struct Status {
+    bool active, returning, faulted, limited;
+    uint8_t legIndex;
+    hexapod::Point3D tip;
+};
+
 class Controller {
 public:
     static Controller& instance();
@@ -28,6 +34,7 @@ public:
 
     bool isActive() const;
     uint8_t activeLegIndex() const;
+    Status status() const;
 
     void onLoopTick(uint32_t elapsedMs);
 
@@ -35,10 +42,13 @@ private:
     struct State {
         bool active = false;
         uint8_t legIndex = 0;
-        hexapod::Point3D standbyTipLocal;
-        hexapod::Point3D currentTipWorld;
+        hexapod::Point3D standbyTipWorld{0, 0, 0};
+        hexapod::Point3D currentTipWorld{0, 0, 0};
         InputAxes axes;
-        float maxLocalRadius = 0.0f;
+        bool returning = false;
+        bool faulted = false;
+        bool limited = false;
+        int pendingLeg = -1;
         uint32_t lastInputMs = 0;
     };
 
@@ -47,7 +57,7 @@ private:
     Controller(const Controller&) = delete;
     Controller& operator=(const Controller&) = delete;
 
-    void clampTargetLocal(const State& state, hexapod::Point3D& localTip) const;
+
 
 private:
     State state_;

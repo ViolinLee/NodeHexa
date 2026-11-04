@@ -12,18 +12,22 @@ namespace hexapod {
         Leg(int legIndex);
         virtual ~Leg();
 
-        // coordinate system translation
+        bool solveLocal(const Point3D& tip, float angles[3]) const;
+        bool canMoveTip(const Point3D& world);
+        bool hasPosition() const;
+
+        // Coordinate transforms
         void translateToLocal(const Point3D& world, Point3D& local);
         void translateToWorld(const Point3D& local, Point3D& world);
 
-        void setJointAngle(float angle[3]);
+        bool setJointAngle(float angle[3]);
 
         // world coordinate system (default)
-        void moveTip(const Point3D& to);
+        bool moveTip(const Point3D& to);
         const Point3D& getTipPosition(void);
 
         // local coordinate system version
-        void moveTipLocal(const Point3D& to);
+        bool moveTipLocal(const Point3D& to);
         const Point3D& getTipPositionLocal(void);
 
         // 
@@ -33,15 +37,10 @@ namespace hexapod {
 
         //
         void forceResetTipPosition() {
+            for (int j = 0; j < 3; ++j) servos_[j]->invalidateCommand();
             tipPos_ = Point3D(0, 0, 0);
             tipPosLocal_ = Point3D(0, 0, 0);
         }
-
-    private:
-        // Local coorinate system
-        static void _forwardKinematics(float angle[3], Point3D& out);
-        static void _inverseKinematics(const Point3D& to, float angles[3]);
-        void _move(const Point3D& to);
 
     private:
         int index_;
