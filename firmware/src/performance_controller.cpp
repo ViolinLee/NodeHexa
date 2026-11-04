@@ -1,7 +1,5 @@
 #include "performance_controller.h"
 
-#include <cstdio>
-
 #include "debug.h"
 
 namespace performance {
@@ -170,20 +168,12 @@ bool Controller::start(Kind kind,
     state_ = nextState;
     acceptedSequenceId = nextState.sequenceId;
 
-    char buffer[120];
-    snprintf(buffer,
-             sizeof(buffer),
-             "[Performance] start kind=%s repeat=%d sequence=%u",
-             kindToKey(nextState.kind),
-             nextState.repeat ? 1 : 0,
-             nextState.sequenceId);
-    LOG_INFO(buffer);
     return true;
 }
 
 void Controller::clear(const char* reason) {
     if (state_.active && reason) {
-        LOG_INFO(reason);
+        LOG_INFO("%s", reason);
     }
     state_ = State{};
 }
@@ -203,12 +193,7 @@ void Controller::onSequenceComplete(uint32_t sequenceId) {
 
     String error;
     if (!enqueueRound(nextState, false, error)) {
-        char buffer[128];
-        snprintf(buffer,
-                 sizeof(buffer),
-                 "[Performance] repeat enqueue failed: %s",
-                 error.c_str());
-        LOG_INFO(buffer);
+        LOG_INFO("[Performance] repeat enqueue failed: %s", error.c_str());
         clear("[Performance] repeat stopped");
         return;
     }

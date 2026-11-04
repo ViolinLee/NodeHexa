@@ -55,10 +55,6 @@ _mode和mode的处理在异步的Web服务回调函数中处理
 #define NODEHEXA_STRINGIFY_INNER(value) #value
 #define NODEHEXA_STRINGIFY(value) NODEHEXA_STRINGIFY_INNER(value)
 
-// 调试模式控制
-// #define DEBUG_ADC_MONITOR  // 注释此行可关闭电池电压ADC调试输出
-// #define DEBUG_FRAME_RECEIVE  // 启用帧接收调试输出
-
 // 常量定义
 
 // 串口配置
@@ -117,7 +113,6 @@ static void log_output(const char* log);
 static bool parseCalibrationData(const String& jsonString,
                                  CalibrationData& data,
                                  String& errorMessage);
-void printWelcomeMessage();
 
 // AP 配置接口声明
 void handleApConfigGet(AsyncWebServerRequest *request);
@@ -269,11 +264,9 @@ void setup() {
   server.on("/calibration", HTTP_POST, 
     [](AsyncWebServerRequest *request)
     {
-      //Serial.println("1");
     },
     [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final)
     {
-      //Serial.println("2");
     },
     handleCalibrationData);
   server.on("/api/calibration", HTTP_GET, handleCalibrationGet);
@@ -343,10 +336,9 @@ void setup() {
     // RX only parses and enqueues. Business handling runs independently so a
     // slow command can never make the hardware UART overflow silently.
     xTaskCreate(SerialCommandTask, "UartRx", 4096, NULL, 3, NULL);
-    xTaskCreate(UartDispatchTask, "UartDispatch", 6144, NULL, 2, NULL);
+    // Keep stack headroom for nested JSON parsing and performance dispatch.
+    xTaskCreate(UartDispatchTask, "UartDispatch", 8192, NULL, 2, NULL);
   }
-
-  printWelcomeMessage();
 
   buzzer::play(buzzer::Cue::Startup);
 
@@ -457,18 +449,13 @@ void normal_loop() {
   auto spent = millis() - t0;
 
   if(spent < REACT_DELAY) {
-    // Serial.println(spent);
     delay(REACT_DELAY-spent);
-  }
-  else {
-    Serial.println(spent);
   }
 }
 
 /* 配置循环模式
 */
 void setting_loop() {
-  // LOG_INFO("Calibration Mode...\n");
 }
 
 /* HandleRoot
@@ -910,7 +897,6 @@ void handleUltrasonicGet(AsyncWebServerRequest *request) {
 }
 
 void handleApConfigConfirm(AsyncWebServerRequest *request) {
-  Serial.println("AP Config: Confirm endpoint hit");
   apconfig::confirm();
   
   StaticJsonDocument<128> response;
@@ -1169,12 +1155,8 @@ void onRobotCmdWebSocketEvent(AsyncWebSocket *server,
 
         AdvancedCommandResult adv = handleAdvancedMotionCommand(json.as<JsonVariantConst>());
         if (adv.handled) {
-          if (!adv.suppressAck) {
-            if (adv.success) {
-              Serial.println("[WebSocket] Advanced motion command accepted");
-            } else {
-              Serial.printf("[WebSocket] Advanced command failed: %s\n", adv.message.c_str());
-            }
+          if (!adv.suppressAck && !adv.success) {
+            Serial.printf("[WebSocket] Advanced command failed: %s\n", adv.message.c_str());
           }
           if (!adv.suppressAck && client) {
             StaticJsonDocument<160> ack;
@@ -1296,37 +1278,14 @@ void BatteryMonitorTask(void *pvParameters) {
     }
 
     uint16_t adcAverage = adcSum / actualSampleCount;
-    const uint16_t rawAdc = adcReadings[actualSampleCount < SAMPLE_SIZE ? actualSampleCount - 1 : readIndex == 0 ? SAMPLE_SIZE - 1 : readIndex - 1];
-
     const uint16_t voltageMv = power_manager::voltageMvFromAdcAverage(adcAverage);
-    const float voltage = voltageMv / 1000.0f;
     const bool useMovingThreshold = shouldUseMovingLowBatteryThreshold();
     const power_manager::SampleResult sample = power_manager::observeVoltage(
       voltageMv, useMovingThreshold, devsettings::getLowBatteryPolicy());
 
     if (sample.newlyLatched) {
       buzzer::setMandatoryLowBatteryAlarm(true);
-#ifdef DEBUG_ADC_MONITOR
-      Serial.println("WARNING: Low voltage detected! (latched)");
-#endif
     }
-
-    #ifdef DEBUG_ADC_MONITOR
-    Serial.printf("ADC Debug - Raw: %u, Avg: %u, Samples: %u, Voltage: %.2fV (%umV), Warning: %.2fV, Latch: %.2fV [%s], LowNow: %s, LowCount: %u/%u, Latched: %s, Handled: %s\n",
-                  rawAdc,
-                  adcAverage,
-                  actualSampleCount,
-                  voltage,
-                  voltageMv,
-                  power_manager::kWarningThresholdMv / 1000.0f,
-                  sample.thresholdMv / 1000.0f,
-                  useMovingThreshold ? "moving" : "standby",
-                  sample.belowThreshold ? "yes" : "no",
-                  sample.state.consecutiveLowSamples,
-                  power_manager::kConsecutiveSamplesToLatch,
-                  sample.state.lowBatteryLatched ? "yes" : "no",
-                  sample.state.latchHandled ? "yes" : "no");
-    #endif
 
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
@@ -1352,21 +1311,6 @@ void LEDControllerTask(void *pvParameters) {
     }
     lastState = currentState;
   }
-}
-
-// 打印欢迎语（用于确认SPIFFS文件系统正常工作）
-void printWelcomeMessage() {
-  File file = SPIFFS.open("/text.txt");
-  if(!file){
-    Serial.println("Failed to open file for reading");
-    return;
-  }
-  
-  while(file.available()){
-    Serial.write(file.read());
-  }
-  Serial.println();
-  file.close();
 }
 
 void clearMovementFlag() {
@@ -1582,7 +1526,6 @@ static void handleSequenceComplete(uint32_t sequenceId) {
 
   sendSerialResponse(payload);
   if (wsRoverCmd.count() > 0) wsRoverCmd.textAll(payload);
-  Serial.printf("[MotionController] Sequence %u completed\n", sequenceId);
   performance::controller().onSequenceComplete(sequenceId);
 }
 

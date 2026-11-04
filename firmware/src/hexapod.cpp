@@ -183,10 +183,6 @@ namespace hexapod {
     void HexapodClass::setMovementSpeed(float speed) {
         // 受限于舵机频率(50hz->20ms)，速度控制只能是离散的(1/n)
         movement_.setSpeed(speed);
-        char buffer[100]; 
-        snprintf(buffer, sizeof(buffer), "运动速度已设置为: %.2f (范围: %.1f - %.1f)", 
-                 speed, config::minSpeed, config::maxSpeed);
-        LOG_INFO(buffer);
     }
 
     void HexapodClass::setMovementSpeedLevel(SpeedLevel level) {
@@ -197,11 +193,6 @@ namespace hexapod {
         
         float speed = speedLevelMultipliers[level];
         setMovementSpeed(speed);
-        
-        const char* levelNames[] = {"慢速", "中速", "快速", "最快"};
-        char buffer[100];
-        snprintf(buffer, sizeof(buffer), "速度档位已设置为: %s (%.2f)", levelNames[level], speed);
-        LOG_INFO(buffer);
     }
 
     float HexapodClass::getMovementSpeed() const {
@@ -229,15 +220,9 @@ namespace hexapod {
             for(int j=0; j<3; j++) {
                 int offset;
                 legs_[i].get(j)->getParameter(offset);
-                
-                Serial.println(offset);
                 legData.add((short)offset);
             }
         }
-
-        String output;
-        serializeJson(doc, output);
-        Serial.println(output);
 
         File file = SPIFFS.open(calibrationFilePath, FILE_WRITE);
         if (!file) {
@@ -264,10 +249,6 @@ namespace hexapod {
         if (legIndex < 0 || legIndex >= 6 || partIndex < 0 || partIndex >= 3) {
             return;
         }
-        char buffer[100]; 
-        snprintf(buffer, sizeof(buffer), "腿部关节舵机校准: 腿部索引[%d] 关节索引[%d] 偏移量[%d]", legIndex, partIndex, offset);
-        LOG_INFO(buffer);
-
         legs_[legIndex].get(partIndex)->setParameter(offset, false);
     }
 
@@ -305,10 +286,6 @@ namespace hexapod {
             file.close();
             return;
         }
-        LOG_INFO("Read Servo Motors Calibration Data:");
-        serializeJson(doc, Serial);
-        Serial.println();
-
         for (int i = 0; i < 6; i++) {
             char leg[5];
             sprintf(leg, "leg%d", i);

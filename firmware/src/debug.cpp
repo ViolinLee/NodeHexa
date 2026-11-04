@@ -10,20 +10,21 @@ namespace {
 
 void _my_log_impl(const char* format, ...)
 {
-    char buffer[256];
+    if (!_writer || !format) return;
+
+    char buffer[256] = {};
     int pos = 0;
 
     if(_time_func) {
-        pos = sprintf(buffer, "[%d]", _time_func());
+        pos = snprintf(buffer, sizeof(buffer), "[%d]", _time_func());
+        if (pos < 0 || static_cast<size_t>(pos) >= sizeof(buffer)) return;
     }
 
-    if (_writer) {
-        va_list ap;
-        va_start(ap, format);
-        vsprintf(buffer+pos, format, ap);
-        va_end(ap);
-        _writer(buffer);
-    }
+    va_list ap;
+    va_start(ap, format);
+    vsnprintf(buffer + pos, sizeof(buffer) - pos, format, ap);
+    va_end(ap);
+    _writer(buffer);
 }
 
 namespace hexapod {

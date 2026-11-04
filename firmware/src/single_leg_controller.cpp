@@ -99,7 +99,7 @@ void Controller::stop(const char* reason, bool restoreStandby) {
         state_ = State{};
     }
     xSemaphoreGive(mutex_);
-    if (wasActive && reason) LOG_INFO(reason);
+    if (wasActive && reason) LOG_INFO("%s", reason);
 }
 
 bool Controller::isActive() const {
