@@ -8,6 +8,7 @@
   let reconnectDelayMs = 1000;
   let capsTimer = 0;
   let streamSessionId = 0;
+  let streamElement = null;
   let motionButtonMode = 'continuous';
 
   function installStyles() {
@@ -20,7 +21,6 @@
       #cameraVideoMode{display:none;position:fixed;inset:0;width:100vw;height:100dvh;background:#050505;color:#fff;z-index:10000;overflow:hidden}
       body.camera-mode #cameraVideoMode{display:flex!important;flex-direction:column}
       .camera-view{position:relative;flex:0 0 45%;min-height:0;background:#000;display:flex;align-items:center;justify-content:center}
-      .camera-view img{width:100%;height:100%;object-fit:contain;background:#000;-webkit-user-drag:none}
       .camera-status{position:absolute;left:10px;top:10px;max-width:calc(100% - 20px);padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.72);font:13px system-ui,sans-serif}
       .camera-controls{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:space-evenly;align-items:center;padding:8px calc(14px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));box-sizing:border-box;background:#111827}
       .camera-toolbar{width:min(620px,100%);display:flex;gap:8px;justify-content:space-between;align-items:center}
@@ -114,16 +114,18 @@
   }
 
   function removeStreamElement() {
-    const stream = document.getElementById('cameraStream');
-    if (!stream) return;
-    stream.removeAttribute('src');
-    stream.remove();
+    streamElement = null;
+    const frame = document.getElementById('cameraStreamFrame');
+    if (!frame) return;
+    // Stop only the video document: Safari may keep a detached MJPEG img alive.
+    frame.contentWindow.stop();
+    frame.remove();
   }
 
   function openStream() {
     if (!active || document.hidden || !state.available || !state.streamUrl) return;
     if (reconnectTimer) return;
-    if (document.getElementById('cameraStream')) return;
+    if (streamElement) return;
 
     const view = document.querySelector('.camera-view');
     const status = document.getElementById('cameraStatus');
@@ -131,23 +133,33 @@
 
     const sessionId = ++streamSessionId;
     const streamUrl = state.streamUrl;
-    const stream = document.createElement('img');
+    const frame = document.createElement('iframe');
+    frame.id = 'cameraStreamFrame';
+    frame.title = 'Camera stream';
+    frame.tabIndex = -1;
+    frame.style.cssText = 'width:100%;height:100%;border:0;pointer-events:none';
+    view.insertBefore(frame, status);
+    const videoDocument = frame.contentDocument;
+    videoDocument.body.style.cssText = 'margin:0;height:100vh;overflow:hidden;background:#000';
+    const stream = videoDocument.createElement('img');
+    stream.style.cssText = 'width:100%;height:100%;object-fit:contain';
+    streamElement = stream;
     stream.id = 'cameraStream';
     stream.alt = 'Camera stream';
     stream.draggable = false;
     stream.addEventListener('load', () => {
-      if (!active || sessionId !== streamSessionId || stream !== document.getElementById('cameraStream')) return;
+      if (!active || sessionId !== streamSessionId || stream !== streamElement) return;
       reconnectDelayMs = 1000;
       setStatus(state.binding === 'verified' ? '图传已连接 · 设备已绑定' : '图传已连接 · 未验证绑定（旧固件）');
     });
     stream.addEventListener('error', () => {
-      if (!active || sessionId !== streamSessionId || stream !== document.getElementById('cameraStream')) return;
+      if (!active || sessionId !== streamSessionId || stream !== streamElement) return;
       api.stop();
       setStatus('图传连接中…');
       closeStream();
       scheduleReconnect();
     });
-    view.insertBefore(stream, status);
+    videoDocument.body.appendChild(stream);
     stream.src = streamUrl + (streamUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
   }
 
